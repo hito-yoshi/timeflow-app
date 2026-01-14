@@ -2658,3 +2658,38 @@ body {
     font-family: var(--font-mono);
     color: var(--primary-alt);
 }
+
+/* Task History List */
+.history-list {
+    list-style: none;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 0.5rem;
+    padding-right: 4px;
+    /* Scrollbar space */
+}
+
+.history-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: var(--text-muted);
+}
+
+.history-item:last-child {
+    border-bottom: none;
+}
+
+.history-date {
+    font-family: var(--font-mono);
+    opacity: 0.8;
+}
+
+.history-duration {
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: var(--text-main);
+}

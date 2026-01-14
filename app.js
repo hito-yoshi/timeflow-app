@@ -7,7 +7,7 @@
     console.log('TimeFlow: Immediate execution check...');
     window.switchView = function (view) {
         console.log('switchView called with:', view);
-        const titles = { dashboard: 'ダッシュボード', tasks: 'タスク管理', logs: 'ログ一覧', settings: '設定' };
+        const titles = { dashboard: 'ダッシュボード', tasks: 'タスク管理', logs: 'ログ一覧', settings: '設定', help: '使い方ガイド' };
         const pageTitleEl = document.getElementById('pageTitle');
         if (pageTitleEl) pageTitleEl.textContent = titles[view] || '';
 
@@ -267,12 +267,7 @@ async function saveState() {
     }
 }
 
-// ========================================
-// Manual / Help
-// ========================================
-window.openManualModal = () => {
-    document.getElementById('manualModal').classList.add('show');
-};
+
 
 // ========================================
 // Clock
@@ -471,8 +466,8 @@ function renderQuickTaskList(animateId = null) {
                             <div class="task-title" style="opacity:0.7">${escapeHtml(item.name)}</div>
                         </div>
                         <div class="task-btn-group">
-                            <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();unarchiveTask('${item.id}')" title="復元">↩</button>
-                            <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();deleteTaskPermanently('${item.id}')" title="完全削除">🗑</button>
+                            <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();restoreTask('${item.id}')" title="復元">↩</button>
+                            <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();permanentlyDeleteTask('${item.id}')" title="完全削除">🗑</button>
                         </div>
                     </div>
                 `).join('')}
@@ -646,6 +641,10 @@ window.openTaskModal = (id = null) => {
     const title = document.getElementById('taskModalTitle');
     document.getElementById('taskEditId').value = id || '';
 
+    // History elements
+    const historySection = document.getElementById('taskHistorySection');
+    const historyList = document.getElementById('taskHistoryList');
+
     if (id) {
         const item = state.items.find(i => i.id === id);
         if (item) {
@@ -657,6 +656,31 @@ window.openTaskModal = (id = null) => {
             if (estimatedEl) estimatedEl.value = item.estimatedHours || '';
             const dueDateEl = document.getElementById('taskDueDate');
             if (dueDateEl) dueDateEl.value = item.dueDate || '';
+
+            // Render History
+            if (historySection && historyList) {
+                historySection.classList.remove('hidden');
+
+                // Get related logs
+                const logs = state.sessions
+                    .filter(s => s.itemId === id)
+                    .sort((a, b) => new Date(b.startAt) - new Date(a.startAt));
+
+                if (logs.length > 0) {
+                    historyList.innerHTML = logs.map(log => {
+                        const dur = formatDuration(new Date(log.endAt) - new Date(log.startAt));
+                        const date = formatDateShort(log.startAt) + ' ' + formatTime(log.startAt);
+                        return `
+                            <li class="history-item">
+                                <span class="history-date">${date}</span>
+                                <span class="history-duration">${dur}</span>
+                            </li>
+                        `;
+                    }).join('');
+                } else {
+                    historyList.innerHTML = '<li class="history-item" style="justify-content:center;">履歴はありません</li>';
+                }
+            }
         }
     } else {
         title.textContent = 'タスク追加';
@@ -667,6 +691,9 @@ window.openTaskModal = (id = null) => {
         if (estimatedEl) estimatedEl.value = '';
         const dueDateEl = document.getElementById('taskDueDate');
         if (dueDateEl) dueDateEl.value = '';
+
+        // Hide history for new task
+        if (historySection) historySection.classList.add('hidden');
     }
 
     renderColorPicker();
@@ -916,9 +943,30 @@ function startTask(id) {
 }
 
 
-function stopTask(id) {
+window.stopTask = (id) => {
     console.log('TimeFlow: stopTask called for', id);
-    finishSession(id);
+
+    // Check if task is in active sessions
+    const activeIdx = state.activeSessions.findIndex(s => s.itemId === id);
+
+    if (activeIdx !== -1) {
+        // Task is active - use finishSession
+        finishSession(id);
+    } else if (state.pausedSessions[id] !== undefined) {
+        // Task is paused - create log from paused time
+        const totalMs = state.pausedSessions[id];
+        const effectiveStartAt = new Date(Date.now() - totalMs).toISOString();
+
+        state.sessions.push({
+            id: generateId(),
+            itemId: id,
+            startAt: effectiveStartAt,
+            endAt: new Date().toISOString(),
+            note: ''
+        });
+        console.log('TimeFlow: Created session from paused state, duration:', totalMs);
+    }
+
     // Clear any paused time since we recorded the full session
     delete state.pausedSessions[id];
 
@@ -938,6 +986,7 @@ function stopTask(id) {
     // Save in background
     saveState().catch(e => console.error('TimeFlow: saveState error in stopTask:', e));
 }
+
 
 
 

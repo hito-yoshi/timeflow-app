@@ -71,7 +71,7 @@
                     </span>
                     <span>設定</span>
                 </button>
-                <button class="nav-item" onclick="openManualModal()">
+                <button class="nav-item" data-view="help">
                     <span class="nav-icon">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -256,6 +256,73 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Help View -->
+            <div id="helpView" class="view-container hidden">
+                <div class="card" style="max-width:800px;">
+                    <div class="card-header">
+                        <h3>TimeFlow 使い方ガイド</h3>
+                    </div>
+                    <div class="manual-content">
+                        <section>
+                            <h3>1. 自分専用ページ（URL）の作り方</h3>
+                            <p>このアプリは「自分専用のURL」を使うことで、データをクラウドへ安全に保存します。他の社員とデータが混ざることはありません。</p>
+                            <div class="manual-step-box">
+                                <ol>
+                                    <li>自分の名前を決める（例：<code>tanaka</code>）</li>
+                                    <li>URLの末尾に <code>?user=名前</code> を付けてアクセスする<br>
+                                        <small>例：<code>https://.../?user=tanaka</code></small>
+                                    </li>
+                                    <li>そのページを<strong>ブックマーク（お気に入り）</strong>に登録する</li>
+                                </ol>
+                            </div>
+                            <p><small>※ブックマークから開く限り、スマホでもPCでも同じデータが自動で読み込まれます。</small></p>
+                        </section>
+
+                        <hr>
+
+                        <section>
+                            <h3>2. 基本的な計測方法</h3>
+                            <ul>
+                                <li><strong>タスクの作成</strong>: 画面中央の「＋」ボタンから追加します。</li>
+                                <li><strong>計測開始（▶）</strong>: タスクの再生ボタンを押します。</li>
+                                <li><strong>計測完了（✔）</strong>: 作業が終わったらチェックボタンを押すと、記録がクラウドに保存されます。</li>
+                            </ul>
+                        </section>
+
+                        <hr>
+
+                        <section>
+                            <h3>3. タスクのアーカイブ</h3>
+                            <ul>
+                                <li><strong>アーカイブ</strong>: 完了したタスクは「…」メニューからアーカイブできます。</li>
+                                <li><strong>表示切替</strong>: アーカイブしたタスクは「アーカイブを表示」で確認・復元可能です。</li>
+                                <li>アーカイブしてもログデータは保持されます。</li>
+                            </ul>
+                        </section>
+
+                        <hr>
+
+                        <section>
+                            <h3>4. グラフの見方</h3>
+                            <ul>
+                                <li><strong>日/週/月</strong>: 表示期間を切り替えられます。</li>
+                                <li><strong>棒グラフ</strong>: 各タスクの作業時間を色分けで表示します。</li>
+                                <li><strong>合計（重複込み）</strong>: 同時作業を含む累積時間です。</li>
+                                <li><strong>実働時間</strong>: 重複を除いた実際の作業時間です。</li>
+                                <li><strong>◀ ▶</strong>: 前後の期間に移動できます。</li>
+                            </ul>
+                        </section>
+
+                        <hr>
+
+                        <section>
+                            <h3>5. データの管理</h3>
+                            <p>データは操作のたびに自動でクラウドに保存されます。ブラウザのキャッシュを消しても、専用のブックマークから開けばデータは消えません。</p>
+                        </section>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -285,6 +352,13 @@
                         class="btn btn-primary">保存</button></div>
 
             </form>
+
+            <!-- Task History Section -->
+            <div id="taskHistorySection" class="task-history-section hidden"
+                style="margin-top: 2rem; border-top: 1px solid var(--border-light); padding-top: 1rem;">
+                <h3 style="font-size: 1rem; margin-bottom: 0.5rem; color: var(--text-muted);">作業履歴</h3>
+                <ul id="taskHistoryList" class="history-list"></ul>
+            </div>
         </div>
     </div>
 
@@ -311,76 +385,7 @@
         </div>
     </div>
 
-    <!-- Manual Modal -->
-    <div id="manualModal" class="modal-overlay">
-        <div class="modal-window manual-modal-window">
-            <div class="modal-header">
-                <h2>TimeFlow 使い方ガイド</h2>
-                <button class="btn-close" onclick="closeModal('manualModal')">&times;</button>
-            </div>
-            <div class="modal-body manual-content">
-                <section>
-                    <h3>1. 自分専用ページ（URL）の作り方</h3>
-                    <p>このアプリは「自分専用のURL」を使うことで、データをクラウドへ安全に保存します。他の社員とデータが混ざることはありません。</p>
-                    <div class="manual-step-box">
-                        <ol>
-                            <li>自分の名前を決める（例：<code>tanaka</code>）</li>
-                            <li>URLの末尾に <code>?user=名前</code> を付けてアクセスする<br>
-                                <small>例：<code>https://.../?user=tanaka</code></small>
-                            </li>
-                            <li>そのページを<strong>ブックマーク（お気に入り）</strong>に登録する</li>
-                        </ol>
-                    </div>
-                    <p><small>※ブックマークから開く限り、スマホでもPCでも同じデータが自動で読み込まれます。</small></p>
-                </section>
 
-                <hr>
-
-                <section>
-                    <h3>2. 基本的な計測方法</h3>
-                    <ul>
-                        <li><strong>タスクの作成</strong>: 画面中央の「＋」ボタンから追加します。</li>
-                        <li><strong>計測開始（▶）</strong>: タスクの再生ボタンを押します。</li>
-                        <li><strong>計測完了（✔）</strong>: 作業が終わったらチェックボタンを押すと、記録がクラウドに保存されます。</li>
-                    </ul>
-                </section>
-
-                <hr>
-
-                <section>
-                    <h3>3. タスクのアーカイブ</h3>
-                    <ul>
-                        <li><strong>アーカイブ</strong>: 完了したタスクは「…」メニューからアーカイブできます。</li>
-                        <li><strong>表示切替</strong>: アーカイブしたタスクは「アーカイブを表示」で確認・復元可能です。</li>
-                        <li>アーカイブしてもログデータは保持されます。</li>
-                    </ul>
-                </section>
-
-                <hr>
-
-                <section>
-                    <h3>4. グラフの見方</h3>
-                    <ul>
-                        <li><strong>日/週/月</strong>: 表示期間を切り替えられます。</li>
-                        <li><strong>棒グラフ</strong>: 各タスクの作業時間を色分けで表示します。</li>
-                        <li><strong>合計（重複込み）</strong>: 同時作業を含む累積時間です。</li>
-                        <li><strong>実働時間</strong>: 重複を除いた実際の作業時間です。</li>
-                        <li><strong>◀ ▶</strong>: 前後の期間に移動できます。</li>
-                    </ul>
-                </section>
-
-                <hr>
-
-                <section>
-                    <h3>5. データの管理</h3>
-                    <p>データは操作のたびに自動でクラウドに保存されます。ブラウザのキャッシュを消しても、専用のブックマークから開けばデータは消えません。</p>
-                </section>
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-primary" onclick="closeModal('manualModal')">閉じる</button>
-            </div>
-        </div>
-    </div>
 
     <!-- Toast -->
     <div id="toast" class="toast"></div>
