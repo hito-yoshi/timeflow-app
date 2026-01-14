@@ -288,19 +288,6 @@ function initEventListeners() {
 }
 
 // Function already defined at the top for global availability
-const titles = { dashboard: 'ダッシュボード', tasks: 'タスク管理', logs: 'ログ一覧', settings: '設定' };
-const pageTitleEl = document.getElementById('pageTitle');
-if (pageTitleEl) pageTitleEl.textContent = titles[view] || '';
-
-document.querySelectorAll('.view-container').forEach(v => v.classList.add('hidden'));
-const viewEl = document.getElementById(view + 'View');
-if (viewEl) viewEl.classList.remove('hidden');
-
-if (view === 'dashboard') renderAll();
-if (view === 'logs') renderLogTable();
-if (view === 'tasks') renderFullTaskList();
-if (view === 'settings') loadSettingsForm();
-};
 
 // ========================================
 // Render All
