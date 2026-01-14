@@ -1077,7 +1077,7 @@ window.openMiniDashboard = () => {
         return;
     }
 
-    window.miniWindow = window.open('', 'TimeFlowMini', 'width=340,height=500,menubar=no,toolbar=no,location=no,status=no,resizable=yes');
+    window.miniWindow = window.open('', 'TimeFlowMini', 'width=360,height=600,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes,popup=yes');
 
     if (!window.miniWindow) return;
 
@@ -1089,16 +1089,11 @@ window.openMiniDashboard = () => {
         <title>TimeFlow Mini</title>
         <link rel="stylesheet" href="style.css"> 
         <style>
-            body { padding: 1rem; background: var(--bg-body, #111827); color: var(--text-main, #fff); overflow-y: auto; }
-            .mini-task-item { background: var(--bg-card, #1F2937); border-radius: 8px; padding: 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 8px; border-left: 4px solid transparent; }
-            .mini-task-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
-            .mini-task-name { font-size: 14px; font-weight: 500; line-height: 1.4; color: var(--text-main); word-break: break-all; }
-            .mini-task-timer { font-size: 28px; font-weight: 700; font-family: monospace; color: var(--text-main); display: block; margin-top: 4px; }
-            .mini-btn-group { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
-            .empty-msg { text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 2rem; opacity: 0.7; }
+            body.mini-window-body { padding: 12px; background: var(--bg-body, #111827); color: var(--text-main, #fff); overflow-y: auto; }
+            .mini-window-body .empty-msg { text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 2rem; opacity: 0.7; }
         </style>
     `;
-    doc.body.className = document.body.className; // Sync theme class
+    doc.body.className = document.body.className + ' mini-window-body';
 
     renderMiniWindowContent();
 
@@ -1154,22 +1149,22 @@ window.renderMiniWindowContent = () => {
 
         let buttons = '';
         if (isActive) {
-            buttons = `<button class="btn btn-sm btn-icon-only btn-warning" onclick="window.opener.toggleTask('${item.id}')" title="一時停止">${pauseIcon}</button>`;
+            buttons = `<button class="btn btn-sm btn-icon-only btn-warning" onclick="window.opener.toggleTask('${item.id}')" data-tooltip="一時停止">${pauseIcon}</button>`;
         } else {
             buttons = `
-                <button class="btn btn-sm btn-icon-only btn-primary" onclick="window.opener.toggleTask('${item.id}')" title="再開">${playIcon}</button>
-                <button class="btn btn-sm btn-icon-only btn-success" onclick="window.opener.stopTask('${item.id}')" title="完了">${completeIcon}</button>
+                <button class="btn btn-sm btn-icon-only btn-primary" onclick="window.opener.toggleTask('${item.id}')" data-tooltip="再開">${playIcon}</button>
+                <button class="btn btn-sm btn-icon-only btn-success" onclick="window.opener.stopTask('${item.id}')" data-tooltip="完了">${completeIcon}</button>
              `;
         }
 
         return `
-            <div class="task-item ${isActive ? 'active' : 'paused'}" style="margin-bottom:8px; padding:10px; display:flex; align-items:center; gap:10px; position:relative; overflow:hidden; background:var(--bg-card); border-radius:8px; border:1px solid var(--border-light);">
-                <div class="task-color" style="background:${item.color}; width:4px; position:absolute; left:0; top:0; bottom:0;"></div>
-                <div class="task-details" style="flex:1; overflow:hidden;">
-                     <div class="task-title" style="font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(item.name)}</div>
+            <div class="task-item ${isActive ? 'active' : 'paused'}" style="margin-bottom:8px;">
+                <div class="task-color" style="background:${item.color};--task-glow-color:${item.color}"></div>
+                <div class="task-details">
+                     <div class="task-title" style="font-size:13px;">${escapeHtml(item.name)}</div>
                 </div>
-                <div class="task-timer ${isActive ? '' : 'paused'}" ${timerId} style="font-size:15px; font-family:monospace; font-weight:600; color:${item.color}">${timerDisplay}</div>
-                <div class="btn-group" style="display:flex; gap:4px;">${buttons}</div>
+                <div class="task-timer ${isActive ? '' : 'paused'}" ${timerId} style="font-size:15px; min-width:auto;">${timerDisplay}</div>
+                <div class="task-btn-group" style="gap:4px;">${buttons}</div>
             </div>
         `;
     }).join('');
