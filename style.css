@@ -108,6 +108,7 @@ body {
     background: linear-gradient(135deg, #fff, #a1a1aa);
     /* Metallic Silver */
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
     letter-spacing: -0.5px;
 }
