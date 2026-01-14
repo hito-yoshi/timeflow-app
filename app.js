@@ -97,17 +97,72 @@ async function handleCloudSync() {
         return;
     }
 
-    // Try to load from Cloud
+    // Try to load from Cloud first
     showToast(`${currentUsername} さんのデータを読み込み中...`);
     const cloudState = await loadFromCloud(currentUsername);
     if (cloudState) {
+        // Cloud data exists - use it
         state = { ...state, ...cloudState };
+        // Also save to user-specific local storage as backup
+        saveToUserLocalStorage();
         showToast('クラウドから同期しました');
     } else {
-        // First time user on cloud
-        loadFromLocalStorage();
-        showToast('新しいユーザーとして開始します');
-        await saveToCloud(); // Initialize cloud entry
+        // Check if there's user-specific local storage first
+        const localState = loadFromUserLocalStorage();
+        if (localState) {
+            state = { ...state, ...localState };
+            showToast('ローカルデータから復元しました');
+            await saveToCloud(); // Sync to cloud
+        } else {
+            // Truly new user - start with empty state (don't inherit from other users)
+            resetToEmptyState();
+            showToast('新しいユーザーとして開始します');
+            await saveToCloud(); // Initialize cloud entry
+        }
+    }
+}
+
+// Reset state to empty for new users
+function resetToEmptyState() {
+    state.items = [];
+    state.sessions = [];
+    state.activeSessions = [];
+    state.pausedSessions = {};
+    state.settings = { ...DEFAULT_SETTINGS };
+}
+
+// User-specific local storage functions
+function getUserStorageKey(key) {
+    if (!currentUsername) return key;
+    return `${key}.${currentUsername}`;
+}
+
+function saveToUserLocalStorage() {
+    if (!currentUsername) return;
+    try {
+        localStorage.setItem(getUserStorageKey(STORAGE_KEYS.items), JSON.stringify(state.items));
+        localStorage.setItem(getUserStorageKey(STORAGE_KEYS.sessions), JSON.stringify(state.sessions));
+        localStorage.setItem(getUserStorageKey(STORAGE_KEYS.activeSessions), JSON.stringify(state.activeSessions));
+        localStorage.setItem(getUserStorageKey(STORAGE_KEYS.settings), JSON.stringify(state.settings));
+        localStorage.setItem(getUserStorageKey('timeflow.pausedSessions'), JSON.stringify(state.pausedSessions));
+    } catch (e) { console.error('User local save error:', e); }
+}
+
+function loadFromUserLocalStorage() {
+    if (!currentUsername) return null;
+    try {
+        const items = localStorage.getItem(getUserStorageKey(STORAGE_KEYS.items));
+        if (!items) return null; // No user-specific data
+        return {
+            items: JSON.parse(items),
+            sessions: JSON.parse(localStorage.getItem(getUserStorageKey(STORAGE_KEYS.sessions)) || '[]'),
+            activeSessions: JSON.parse(localStorage.getItem(getUserStorageKey(STORAGE_KEYS.activeSessions)) || '[]'),
+            settings: { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(getUserStorageKey(STORAGE_KEYS.settings)) || '{}') },
+            pausedSessions: JSON.parse(localStorage.getItem(getUserStorageKey('timeflow.pausedSessions')) || '{}')
+        };
+    } catch (e) {
+        console.error('User local load error:', e);
+        return null;
     }
 }
 
@@ -166,15 +221,17 @@ function loadFromLocalStorage() {
 }
 
 async function saveState() {
-    // Save to LocalStorage (Always as a backup)
-    localStorage.setItem(STORAGE_KEYS.items, JSON.stringify(state.items));
-    localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify(state.sessions));
-    localStorage.setItem(STORAGE_KEYS.activeSessions, JSON.stringify(state.activeSessions));
-    localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(state.settings));
-    localStorage.setItem('timeflow.pausedSessions', JSON.stringify(state.pausedSessions));
-
-    // Save to Cloud if user specified
-    if (currentUsername) {
+    // Save to generic LocalStorage (for no-user mode)
+    if (!currentUsername) {
+        localStorage.setItem(STORAGE_KEYS.items, JSON.stringify(state.items));
+        localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify(state.sessions));
+        localStorage.setItem(STORAGE_KEYS.activeSessions, JSON.stringify(state.activeSessions));
+        localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(state.settings));
+        localStorage.setItem('timeflow.pausedSessions', JSON.stringify(state.pausedSessions));
+    } else {
+        // Save to user-specific local storage as backup
+        saveToUserLocalStorage();
+        // Save to Cloud
         await saveToCloud();
     }
 }
@@ -891,6 +948,9 @@ function stopTimerLoop() {
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
 }
 
+// Counter for 5-second interval updates (more reliable than timestamp comparison)
+let analysisUpdateCounter = 0;
+
 function updateTimers() {
     state.activeSessions.forEach(active => {
         // Update all timer displays for this task (dashboard and task management)
@@ -910,18 +970,17 @@ function updateTimers() {
         mainEl.textContent = formatDuration(totalMs);
     }
 
-    // Real-time update of analysis chart and breakdown (every 5 seconds)
-    if (!updateTimers.lastAnalysisUpdate) updateTimers.lastAnalysisUpdate = 0;
-    const now = Date.now();
-    if (now - updateTimers.lastAnalysisUpdate >= 5000) {
-        updateTimers.lastAnalysisUpdate = now;
+    // Increment counter and update analysis every 5 seconds (5 ticks of 1-second interval)
+    analysisUpdateCounter++;
+    if (analysisUpdateCounter >= 5) {
+        analysisUpdateCounter = 0;
         // Only update if dashboard view is visible
         const dashboardView = document.getElementById('dashboardView');
         if (dashboardView && !dashboardView.classList.contains('hidden')) {
+            // Update stats and summary with active session time included
+            renderStats();
             updateSummary();
-            renderStats(); // Also update the top stats cards
         }
-
     }
 }
 
@@ -1610,14 +1669,42 @@ window.confirmResetAllData = () => {
     showConfirmDialog(
         '全データを削除',
         'すべてのタスク、ログ、設定が削除されます。\nこの操作は取り消せません。実行しますか？',
-        () => {
+        async () => {
+            // Stop any running timers
+            stopTimerLoop();
+
+            // Clear generic local storage
             localStorage.removeItem(STORAGE_KEYS.items);
             localStorage.removeItem(STORAGE_KEYS.sessions);
             localStorage.removeItem(STORAGE_KEYS.activeSessions);
             localStorage.removeItem(STORAGE_KEYS.settings);
             localStorage.removeItem('timeflow.pausedSessions');
+
+            // Clear user-specific local storage if user is specified
+            if (currentUsername) {
+                localStorage.removeItem(getUserStorageKey(STORAGE_KEYS.items));
+                localStorage.removeItem(getUserStorageKey(STORAGE_KEYS.sessions));
+                localStorage.removeItem(getUserStorageKey(STORAGE_KEYS.activeSessions));
+                localStorage.removeItem(getUserStorageKey(STORAGE_KEYS.settings));
+                localStorage.removeItem(getUserStorageKey('timeflow.pausedSessions'));
+            }
+
+            // Reset state to empty
             state = { items: [], sessions: [], activeSessions: [], pausedSessions: {}, settings: { ...DEFAULT_SETTINGS } };
+
+            // Clear cloud data if user is specified
+            if (currentUsername && supabaseClient) {
+                try {
+                    await saveToCloud(); // This will save the empty state to cloud
+                } catch (e) {
+                    console.error('Cloud clear error:', e);
+                }
+            }
+
+            // Update all UI
             renderAll();
+            renderFullTaskList();
+            renderLogTable();
             loadSettingsForm();
             showToast('全データを削除しました', 'success');
         }
