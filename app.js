@@ -385,6 +385,7 @@ function renderAll() {
     renderQuickTaskList();
     updateSummary();
     updateLogFilterOptions();
+    if (typeof renderMiniWindowContent === 'function') renderMiniWindowContent();
 }
 
 // ========================================
@@ -596,9 +597,6 @@ function renderControlButtons(item) {
 
     if (isActive) {
         return `
-            <button class="btn btn-sm btn-icon-only btn-ghost task-play-btn" onclick="event.stopPropagation();openMiniPlayer('${item.id}')" title="別ウィンドウで表示" style="margin-right:8px;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><path d="M15 3v6h6"></path><path d="M10 14L21 3"></path></svg>
-            </button>
             <button class="btn btn-sm btn-icon-only btn-warning task-play-btn" onclick="event.stopPropagation();toggleTask('${item.id}')" title="一時停止">${pauseIcon}</button>
         `;
     } else if (isPaused) {
@@ -1068,55 +1066,90 @@ function stopTimerLoop() {
 // ========================================
 window.miniWindow = null;
 
-window.openMiniPlayer = async (id) => {
-    const item = state.items.find(i => i.id === id);
-    if (!item) return;
+// ========================================
+// Mini Dashboard (Multi-Task Window)
+// ========================================
+window.miniWindow = null;
 
-    // Close existing if any
+window.openMiniDashboard = () => {
     if (window.miniWindow && !window.miniWindow.closed) {
-        window.miniWindow.close();
+        window.miniWindow.focus();
+        return;
     }
 
-    const activeSession = state.activeSessions.find(s => s.itemId === id);
-    if (!activeSession) return;
-
-    const timerValue = formatDuration((activeSession.accumulatedMs || 0) + (Date.now() - new Date(activeSession.startAt).getTime()));
-
-    // Try Document Picture-in-Picture
-    try {
-        if (window.documentPictureInPicture) {
-            window.miniWindow = await documentPictureInPicture.requestWindow({
-                width: 300,
-                height: 150,
-            });
-        }
-    } catch (e) {
-        console.log('PiP failed or not supported, using window.open', e);
-    }
-
-    // Fallback or if PiP API used (miniWindow is set)
-    if (!window.miniWindow) {
-        window.miniWindow = window.open('', 'TimeFlowMini', 'width=300,height=150,menubar=no,toolbar=no,location=no,status=no,resizable=yes');
-    }
+    window.miniWindow = window.open('', 'TimeFlowMini', 'width=340,height=500,menubar=no,toolbar=no,location=no,status=no,resizable=yes');
 
     if (!window.miniWindow) return;
 
-    // Setup Content
     const doc = window.miniWindow.document;
-    doc.body.innerHTML = `
-        <style>
-            body { background: #030305; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; font-family: sans-serif; overflow: hidden; }
-            #taskName { font-size: 14px; opacity: 0.7; margin-bottom: 8px; text-align: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 90%; color: #8B9BB4; }
-            #miniTimer { font-size: 48px; font-weight: bold; font-family: monospace; color: ${item.color}; line-height: 1; text-shadow: 0 0 20px ${item.color}66; }
-        </style>
-        <div id="taskName">${escapeHtml(item.name)}</div>
-        <div id="miniTimer">${timerValue}</div>
-    `;
 
-    // cleanup
+    // Inject Styles
+    doc.head.innerHTML = `
+        <meta charset="UTF-8">
+        <title>TimeFlow Mini</title>
+        <link rel="stylesheet" href="style.css"> 
+        <style>
+            body { padding: 1rem; background: var(--bg-body, #111827); color: var(--text-main, #fff); overflow-y: auto; }
+            .mini-task-item { background: var(--bg-card, #1F2937); border-radius: 8px; padding: 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 8px; border-left: 4px solid transparent; }
+            .mini-task-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+            .mini-task-name { font-size: 14px; font-weight: 500; line-height: 1.4; color: var(--text-main); word-break: break-all; }
+            .mini-task-timer { font-size: 28px; font-weight: 700; font-family: monospace; color: var(--text-main); display: block; margin-top: 4px; }
+            .mini-btn-group { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+            .empty-msg { text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 2rem; opacity: 0.7; }
+        </style>
+    `;
+    doc.body.className = document.body.className; // Sync theme class
+
+    renderMiniWindowContent();
+
     window.miniWindow.addEventListener('pagehide', () => {
         window.miniWindow = null;
     });
+};
+
+window.renderMiniWindowContent = () => {
+    if (!window.miniWindow || window.miniWindow.closed) return;
+    const doc = window.miniWindow.document;
+    const container = doc.body;
+
+    // Use current active sessions
+    if (state.activeSessions.length === 0) {
+        container.innerHTML = '<div class="empty-msg">現在アクティブな<br>タスクはありません</div>';
+        return;
+    }
+
+    // Keep header/style, valid strategy is checking if we need to full re-render
+    // But valid body content replacement is easier
+
+    const html = state.activeSessions.map(active => {
+        const item = state.items.find(i => i.id === active.itemId);
+        const elapsed = Date.now() - new Date(active.startAt).getTime();
+        const totalMs = (active.accumulatedMs || 0) + elapsed;
+        const dur = formatDuration(totalMs);
+
+        return `
+            <div class="mini-task-item" style="border-left-color: ${item.color}">
+                <div class="mini-task-header">
+                    <div class="mini-task-name">${escapeHtml(item.name)}</div>
+                </div>
+                <div class="mini-task-timer" id="mini-timer-${item.id}" style="color:${item.color}">${dur}</div>
+                <div class="mini-btn-group">
+                    <button class="btn btn-sm btn-warning" onclick="window.opener.toggleTask('${item.id}')">一時停止</button>
+                    <button class="btn btn-sm btn-success" onclick="window.opener.stopTask('${item.id}')">完了</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Ensure we don't wipe styles if we were to append, but here we replace body innerHTML? 
+    // No, that kills styles. Let's create a main container.
+    let contentDiv = doc.getElementById('miniContent');
+    if (!contentDiv) {
+        contentDiv = doc.createElement('div');
+        contentDiv.id = 'miniContent';
+        doc.body.appendChild(contentDiv);
+    }
+    contentDiv.innerHTML = html;
 };
 
 // Counter for 5-second interval updates (more reliable than timestamp comparison)
@@ -1134,7 +1167,7 @@ function updateTimers() {
 
         // Update Mini Window if open and matches this task
         if (window.miniWindow && !window.miniWindow.closed) {
-            const miniTimer = window.miniWindow.document.getElementById('miniTimer');
+            const miniTimer = window.miniWindow.document.getElementById(`mini-timer-${active.itemId}`);
             if (miniTimer) miniTimer.textContent = formatDuration(totalMs);
         }
     });
@@ -1187,12 +1220,22 @@ function renderActiveTask() {
         container.innerHTML = `
         <div class="active-timer-big" id="mainTimerDisplay">${formatDuration(elapsed)}</div>
         <div class="active-task-name" style="color:${item?.color || '#fff'}">${escapeHtml(item?.name || '不明')}</div>
-        <button class="btn btn-glass btn-sm" onclick="stopTask('${active.itemId}')" style="margin-top:1rem;border-color:${item?.color}">セッション終了</button>
+        <div class="active-actions" style="display:flex; gap:10px; justify-content:center; align-items:center; margin-top:1rem;">
+            <button class="btn btn-glass btn-sm" onclick="stopTask('${active.itemId}')" style="border-color:${item?.color}">セッション終了</button>
+            <button class="btn btn-ghost btn-sm" onclick="openMiniDashboard()" title="ミニウィンドウで開く">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><path d="M15 3v6h6"></path><path d="M10 14L21 3"></path></svg>
+            </button>
+        </div>
       `;
     } else {
         // Multiple active sessions
         container.innerHTML = `
-        <div class="multi-active-label">同時稼働中: ${state.activeSessions.length}件</div>
+        <div class="multi-active-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="multi-active-label">同時稼働中: ${state.activeSessions.length}件</div>
+            <button class="btn btn-ghost btn-sm" onclick="openMiniDashboard()" title="ミニウィンドウで開く">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><path d="M15 3v6h6"></path><path d="M10 14L21 3"></path></svg>
+            </button>
+        </div>
         <div class="multi-active-list">
           ${state.activeSessions.map(active => {
             const item = state.items.find(i => i.id === active.itemId);
