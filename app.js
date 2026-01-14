@@ -77,7 +77,7 @@ window.onload = async () => {
     // 3. Final Render
     renderAll();
     if (state.activeSessions.filter(s => s).length > 0) startTimerLoop();
-});
+};
 
 function initSupabase() {
     if (!window.supabase) {
