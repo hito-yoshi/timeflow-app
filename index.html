@@ -120,10 +120,22 @@
                 <div class="dashboard-grid-new">
                     <!-- Left Column: Tasks -->
                     <div class="dashboard-left">
-                        <div id="activeTaskDisplay" class="active-task-container"></div>
+
                         <div class="card card-tasks-new" id="taskCard">
                             <div class="card-header">
-                                <h3>タスク</h3><button class="btn btn-icon-sm" onclick="openTaskModal()">+</button>
+                                <h3>タスク</h3>
+                                <div>
+                                    <button class="btn btn-icon-sm" onclick="openMiniDashboard()" title="ミニウィンドウ"
+                                        style="margin-right:8px;">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                            <path d="M15 3v6h6"></path>
+                                            <path d="M10 14L21 3"></path>
+                                        </svg>
+                                    </button>
+                                    <button class="btn btn-icon-sm" onclick="openTaskModal()">+</button>
+                                </div>
                             </div>
                             <div id="taskListCompact" class="task-list-compact-new"></div>
                             <div class="resize-handle" id="taskResizeHandle"></div>

@@ -1112,31 +1112,64 @@ window.renderMiniWindowContent = () => {
     const doc = window.miniWindow.document;
     const container = doc.body;
 
-    // Use current active sessions
-    if (state.activeSessions.length === 0) {
-        container.innerHTML = '<div class="empty-msg">現在アクティブな<br>タスクはありません</div>';
+    const activeList = state.activeSessions.map(s => s.itemId);
+    const pausedList = Object.keys(state.pausedSessions);
+
+    // Active and Paused items unique list
+    const targetIds = [...new Set([...activeList, ...pausedList])];
+
+    const targetItems = state.items.filter(i => targetIds.includes(i.id));
+
+    if (targetItems.length === 0) {
+        container.innerHTML = '<div class="empty-msg" style="padding:2rem;text-align:center;color:#6b7280;font-size:13px;">アクティブなタスクは<br>ありません</div>';
         return;
     }
 
-    // Keep header/style, valid strategy is checking if we need to full re-render
-    // But valid body content replacement is easier
+    const sortedItems = [];
+    // Adds active ones
+    state.activeSessions.forEach(s => {
+        const item = targetItems.find(i => i.id === s.itemId);
+        if (item) sortedItems.push({ item, isActive: true, isPaused: false, session: s });
+    });
+    // Adds paused ones
+    targetItems.forEach(item => {
+        if (state.pausedSessions[item.id] && !sortedItems.find(x => x.item.id === item.id)) {
+            sortedItems.push({ item, isActive: false, isPaused: true });
+        }
+    });
 
-    const html = state.activeSessions.map(active => {
-        const item = state.items.find(i => i.id === active.itemId);
-        const elapsed = Date.now() - new Date(active.startAt).getTime();
-        const totalMs = (active.accumulatedMs || 0) + elapsed;
-        const dur = formatDuration(totalMs);
+    const html = sortedItems.map(({ item, isActive, isPaused, session }) => {
+        let timerDisplay = '00:00:00';
+        if (isActive) {
+            const elapsed = (session.accumulatedMs || 0) + (Date.now() - new Date(session.startAt).getTime());
+            timerDisplay = formatDuration(elapsed);
+        } else if (isPaused) {
+            timerDisplay = formatDuration(state.pausedSessions[item.id]);
+        }
+
+        const timerId = isActive ? `id="mini-timer-${item.id}"` : '';
+        const playIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 4L19 12L7 20V4Z"></path></svg>`;
+        const pauseIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="5" width="3" height="14" rx="1.5"></rect><rect x="15" y="5" width="3" height="14" rx="1.5"></rect></svg>`;
+        const completeIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+
+        let buttons = '';
+        if (isActive) {
+            buttons = `<button class="btn btn-sm btn-icon-only btn-warning" onclick="window.opener.toggleTask('${item.id}')" title="一時停止">${pauseIcon}</button>`;
+        } else {
+            buttons = `
+                <button class="btn btn-sm btn-icon-only btn-primary" onclick="window.opener.toggleTask('${item.id}')" title="再開">${playIcon}</button>
+                <button class="btn btn-sm btn-icon-only btn-success" onclick="window.opener.stopTask('${item.id}')" title="完了">${completeIcon}</button>
+             `;
+        }
 
         return `
-            <div class="mini-task-item" style="border-left-color: ${item.color}">
-                <div class="mini-task-header">
-                    <div class="mini-task-name">${escapeHtml(item.name)}</div>
+            <div class="task-item ${isActive ? 'active' : 'paused'}" style="margin-bottom:8px; padding:10px; display:flex; align-items:center; gap:10px; position:relative; overflow:hidden; background:var(--bg-card); border-radius:8px; border:1px solid var(--border-light);">
+                <div class="task-color" style="background:${item.color}; width:4px; position:absolute; left:0; top:0; bottom:0;"></div>
+                <div class="task-details" style="flex:1; overflow:hidden;">
+                     <div class="task-title" style="font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(item.name)}</div>
                 </div>
-                <div class="mini-task-timer" id="mini-timer-${item.id}" style="color:${item.color}">${dur}</div>
-                <div class="mini-btn-group">
-                    <button class="btn btn-sm btn-warning" onclick="window.opener.toggleTask('${item.id}')">一時停止</button>
-                    <button class="btn btn-sm btn-success" onclick="window.opener.stopTask('${item.id}')">完了</button>
-                </div>
+                <div class="task-timer ${isActive ? '' : 'paused'}" ${timerId} style="font-size:15px; font-family:monospace; font-weight:600; color:${item.color}">${timerDisplay}</div>
+                <div class="btn-group" style="display:flex; gap:4px;">${buttons}</div>
             </div>
         `;
     }).join('');
