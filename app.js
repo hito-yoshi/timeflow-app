@@ -3,9 +3,7 @@
  * All features from original specification
  */
 
-console.log('TimeFlow: app.js loaded and executing...');
-
-// Pre-define switchView globally to ensure it's available immediately
+// Immediate global exposure
 window.switchView = function (view) {
     console.log('switchView called with:', view);
     const titles = { dashboard: 'ダッシュボード', tasks: 'タスク管理', logs: 'ログ一覧', settings: '設定' };
@@ -21,6 +19,8 @@ window.switchView = function (view) {
     if (view === 'tasks' && typeof renderFullTaskList === 'function') renderFullTaskList();
     if (view === 'settings' && typeof loadSettingsForm === 'function') loadSettingsForm();
 };
+
+console.log('TimeFlow: app.js loaded and executing...');
 
 const STORAGE_KEYS = {
     items: 'timeflow.items',
@@ -56,7 +56,8 @@ let supabase = null;
 // ========================================
 // Initialization
 // ========================================
-document.addEventListener('DOMContentLoaded', async () => {
+window.onload = async () => {
+    console.log('TimeFlow: window.onload triggered');
     // 1. Core UI Init (Sync) - Must run first and not block
     initClock();
     initEventListeners();
