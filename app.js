@@ -596,6 +596,9 @@ function renderControlButtons(item) {
 
     if (isActive) {
         return `
+            <button class="btn btn-sm btn-icon-only btn-ghost task-play-btn" onclick="event.stopPropagation();openMiniPlayer('${item.id}')" title="別ウィンドウで表示" style="margin-right:8px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><path d="M15 3v6h6"></path><path d="M10 14L21 3"></path></svg>
+            </button>
             <button class="btn btn-sm btn-icon-only btn-warning task-play-btn" onclick="event.stopPropagation();toggleTask('${item.id}')" title="一時停止">${pauseIcon}</button>
         `;
     } else if (isPaused) {
@@ -1049,9 +1052,72 @@ function stopTimerLoop() {
         clearInterval(timerInterval);
         timerInterval = null;
     }
+
+    // Close mini window if open
+    if (window.miniWindow && !window.miniWindow.closed) {
+        window.miniWindow.close();
+        window.miniWindow = null;
+    }
+
     // Reset the analysis update counter when stopping
     analysisUpdateCounter = 0;
 }
+
+// ========================================
+// Mini Timer (PiP)
+// ========================================
+window.miniWindow = null;
+
+window.openMiniPlayer = async (id) => {
+    const item = state.items.find(i => i.id === id);
+    if (!item) return;
+
+    // Close existing if any
+    if (window.miniWindow && !window.miniWindow.closed) {
+        window.miniWindow.close();
+    }
+
+    const activeSession = state.activeSessions.find(s => s.itemId === id);
+    if (!activeSession) return;
+
+    const timerValue = formatDuration((activeSession.accumulatedMs || 0) + (Date.now() - new Date(activeSession.startAt).getTime()));
+
+    // Try Document Picture-in-Picture
+    try {
+        if (window.documentPictureInPicture) {
+            window.miniWindow = await documentPictureInPicture.requestWindow({
+                width: 300,
+                height: 150,
+            });
+        }
+    } catch (e) {
+        console.log('PiP failed or not supported, using window.open', e);
+    }
+
+    // Fallback or if PiP API used (miniWindow is set)
+    if (!window.miniWindow) {
+        window.miniWindow = window.open('', 'TimeFlowMini', 'width=300,height=150,menubar=no,toolbar=no,location=no,status=no,resizable=yes');
+    }
+
+    if (!window.miniWindow) return;
+
+    // Setup Content
+    const doc = window.miniWindow.document;
+    doc.body.innerHTML = `
+        <style>
+            body { background: #030305; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; font-family: sans-serif; overflow: hidden; }
+            #taskName { font-size: 14px; opacity: 0.7; margin-bottom: 8px; text-align: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 90%; color: #8B9BB4; }
+            #miniTimer { font-size: 48px; font-weight: bold; font-family: monospace; color: ${item.color}; line-height: 1; text-shadow: 0 0 20px ${item.color}66; }
+        </style>
+        <div id="taskName">${escapeHtml(item.name)}</div>
+        <div id="miniTimer">${timerValue}</div>
+    `;
+
+    // cleanup
+    window.miniWindow.addEventListener('pagehide', () => {
+        window.miniWindow = null;
+    });
+};
 
 // Counter for 5-second interval updates (more reliable than timestamp comparison)
 let analysisUpdateCounter = 0;
@@ -1065,6 +1131,12 @@ function updateTimers() {
         els.forEach(el => {
             el.textContent = formatDuration(totalMs);
         });
+
+        // Update Mini Window if open and matches this task
+        if (window.miniWindow && !window.miniWindow.closed) {
+            const miniTimer = window.miniWindow.document.getElementById('miniTimer');
+            if (miniTimer) miniTimer.textContent = formatDuration(totalMs);
+        }
     });
     // Update main timer
     const mainEl = document.getElementById('mainTimerDisplay');
