@@ -1666,7 +1666,7 @@ function handleSettingsSubmit(e) {
 
 // Data reset function
 window.confirmResetAllData = () => {
-    showConfirmDialog(
+    showConfirm(
         '全データを削除',
         'すべてのタスク、ログ、設定が削除されます。\nこの操作は取り消せません。実行しますか？',
         async () => {
