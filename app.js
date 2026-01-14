@@ -38,12 +38,22 @@ let supabase = null;
 // Initialization
 // ========================================
 document.addEventListener('DOMContentLoaded', async () => {
-    initSupabase();
-    await handleCloudSync();
+    // 1. Core UI Init (Sync) - Must run first and not block
     initClock();
     initEventListeners();
+
+    // 2. Data Init (Async) - Wrap in try/catch to prevent blocking UI
+    try {
+        initSupabase();
+        await handleCloudSync();
+    } catch (e) {
+        console.error('Initialization error:', e);
+        loadFromLocalStorage(); // Fallback
+    }
+
+    // 3. Final Render
     renderAll();
-    if (state.activeSessions.length > 0) startTimerLoop();
+    if (state.activeSessions.filter(s => s).length > 0) startTimerLoop();
 });
 
 function initSupabase() {
@@ -80,11 +90,18 @@ async function handleCloudSync() {
 
 async function loadFromCloud(username) {
     try {
-        const { data, error } = await supabase
+        // Simple timeout wrapper for Supabase call
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Cloud load timeout')), 5000)
+        );
+
+        const fetchPromise = supabase
             .from('user_data')
             .select('state')
             .eq('username', username)
             .single();
+
+        const { data, error } = await Promise.race([fetchPromise, timeoutPromise]);
 
         if (error) {
             if (error.code === 'PGRST116') return null; // Not found
@@ -251,9 +268,10 @@ function initEventListeners() {
     setupChartTooltip();
 }
 
-function switchView(view) {
+window.switchView = function (view) {
     const titles = { dashboard: 'ダッシュボード', tasks: 'タスク管理', logs: 'ログ一覧', settings: '設定' };
-    document.getElementById('pageTitle').textContent = titles[view] || '';
+    const pageTitleEl = document.getElementById('pageTitle');
+    if (pageTitleEl) pageTitleEl.textContent = titles[view] || '';
 
     document.querySelectorAll('.view-container').forEach(v => v.classList.add('hidden'));
     const viewEl = document.getElementById(view + 'View');
@@ -263,7 +281,7 @@ function switchView(view) {
     if (view === 'logs') renderLogTable();
     if (view === 'tasks') renderFullTaskList();
     if (view === 'settings') loadSettingsForm();
-}
+};
 
 // ========================================
 // Render All
