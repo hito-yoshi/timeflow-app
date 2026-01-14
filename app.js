@@ -844,6 +844,8 @@ window.toggleTask = (id) => {
 };
 
 function startTask(id) {
+    console.log('TimeFlow: startTask called for', id);
+
     if (state.activeSessions.some(s => s.itemId === id)) {
         showToast('このタスクはすでに稼働中です', 'warning');
         return;
@@ -880,12 +882,17 @@ function startTask(id) {
         state.items.unshift(task);
     }
 
-    saveState();
+    // CRITICAL: Start timer loop FIRST, before save (so timer starts even if save fails)
+    console.log('TimeFlow: Starting timer loop from startTask');
+    startTimerLoop();
+
+    // Then update UI
     renderStats();
     renderQuickTaskList(id);
     renderFullTaskList();
-    startTimerLoop();
 
+    // Save state in background (don't block timer start)
+    saveState().catch(e => console.error('TimeFlow: saveState error:', e));
 }
 
 
