@@ -3,24 +3,27 @@
  * All features from original specification
  */
 
-// Immediate global exposure
-window.switchView = function (view) {
-    console.log('switchView called with:', view);
-    const titles = { dashboard: 'ダッシュボード', tasks: 'タスク管理', logs: 'ログ一覧', settings: '設定' };
-    const pageTitleEl = document.getElementById('pageTitle');
-    if (pageTitleEl) pageTitleEl.textContent = titles[view] || '';
+(function () {
+    console.log('TimeFlow: Immediate execution check...');
+    window.switchView = function (view) {
+        console.log('switchView called with:', view);
+        const titles = { dashboard: 'ダッシュボード', tasks: 'タスク管理', logs: 'ログ一覧', settings: '設定' };
+        const pageTitleEl = document.getElementById('pageTitle');
+        if (pageTitleEl) pageTitleEl.textContent = titles[view] || '';
 
-    document.querySelectorAll('.view-container').forEach(v => v.classList.add('hidden'));
-    const viewEl = document.getElementById(view + 'View');
-    if (viewEl) viewEl.classList.remove('hidden');
+        document.querySelectorAll('.view-container').forEach(v => v.classList.add('hidden'));
+        const viewEl = document.getElementById(view + 'View');
+        if (viewEl) viewEl.classList.remove('hidden');
 
-    if (view === 'dashboard' && typeof renderAll === 'function') renderAll();
-    if (view === 'logs' && typeof renderLogTable === 'function') renderLogTable();
-    if (view === 'tasks' && typeof renderFullTaskList === 'function') renderFullTaskList();
-    if (view === 'settings' && typeof loadSettingsForm === 'function') loadSettingsForm();
-};
+        if (view === 'dashboard' && typeof renderAll === 'function') renderAll();
+        if (view === 'logs' && typeof renderLogTable === 'function') renderLogTable();
+        if (view === 'tasks' && typeof renderFullTaskList === 'function') renderFullTaskList();
+        if (view === 'settings' && typeof loadSettingsForm === 'function') loadSettingsForm();
+    };
+    console.log('TimeFlow: window.switchView exposed.');
+})();
 
-console.log('TimeFlow: app.js loaded and executing...');
+console.log('TimeFlow: app.js loaded and executing main scope...');
 
 const STORAGE_KEYS = {
     items: 'timeflow.items',
