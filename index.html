@@ -71,6 +71,17 @@
                     </span>
                     <span>設定</span>
                 </button>
+                <button class="nav-item" onclick="openManualModal()">
+                    <span class="nav-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                        </svg>
+                    </span>
+                    <span>ヘルプ</span>
+                </button>
             </nav>
             <div class="sidebar-footer">
                 <div class="current-time" id="currentTime">00:00</div>
@@ -297,6 +308,53 @@
                         onclick="closeModal('logModal')">キャンセル</button><button type="submit"
                         class="btn btn-primary">保存</button></div>
             </form>
+        </div>
+    </div>
+
+    <!-- Manual Modal -->
+    <div id="manualModal" class="modal-overlay">
+        <div class="modal-window manual-modal-window">
+            <div class="modal-header">
+                <h2>TimeFlow 使い方ガイド</h2>
+                <button class="btn-close" onclick="closeModal('manualModal')">&times;</button>
+            </div>
+            <div class="modal-body manual-content">
+                <section>
+                    <h3>1. 自分専用ページ（URL）の作り方</h3>
+                    <p>このアプリは「自分専用のURL」を使うことで、データをクラウドへ安全に保存します。他の社員とデータが混ざることはありません。</p>
+                    <div class="manual-step-box">
+                        <ol>
+                            <li>自分の名前を決める（例：<code>tanaka</code>）</li>
+                            <li>URLの末尾に <code>?user=名前</code> を付けてアクセスする<br>
+                                <small>例：<code>https://.../?user=tanaka</code></small>
+                            </li>
+                            <li>そのページを<strong>ブックマーク（お気に入り）</strong>に登録する</li>
+                        </ol>
+                    </div>
+                    <p><small>※ブックマークから開く限り、スマホでもPCでも同じデータが自動で読み込まれます。</small></p>
+                </section>
+
+                <hr>
+
+                <section>
+                    <h3>2. 基本的な計測方法</h3>
+                    <ul>
+                        <li><strong>タスクの作成</strong>: 画面中央の「＋」ボタンから追加します。</li>
+                        <li><strong>計測開始（▶）</strong>: タスクの再生ボタンを押します。</li>
+                        <li><strong>計測完了（✔）</strong>: 作業が終わったらチェックボタンを押すと、記録がクラウドに保存されます。</li>
+                    </ul>
+                </section>
+
+                <hr>
+
+                <section>
+                    <h3>3. データの管理</h3>
+                    <p>データは操作のたびに自動でクラウドに保存されます。ブラウザのキャッシュを消しても、専用のブックマークから開けばデータは消えません。</p>
+                </section>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="closeModal('manualModal')">閉じる</button>
+            </div>
         </div>
     </div>
 

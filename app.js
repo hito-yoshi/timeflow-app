@@ -140,6 +140,13 @@ async function saveState() {
 }
 
 // ========================================
+// Manual / Help
+// ========================================
+window.openManualModal = () => {
+    document.getElementById('manualModal').classList.add('show');
+};
+
+// ========================================
 // Clock
 // ========================================
 function initClock() {
