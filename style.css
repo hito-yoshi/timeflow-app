@@ -2693,3 +2693,12 @@ body {
     font-family: var(--font-mono);
     color: var(--text-main);
 }
+
+/* Active Task Display Container */
+.active-task-container {
+    margin-bottom: 24px;
+}
+
+.active-task-container:empty {
+    margin-bottom: 0;
+}
