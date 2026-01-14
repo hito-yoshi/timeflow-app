@@ -2603,6 +2603,7 @@ body {
         max-height: 200px;
     }
 }
+
 /* Manual Modal Specific */
 .manual-modal-window {
     max-width: 700px;
@@ -2610,7 +2611,8 @@ body {
 }
 
 .manual-content {
-    line-height: 1.6;
+    line-height: 1.7;
+    padding: 0 1.5rem;
 }
 
 .manual-content h3 {
@@ -2624,7 +2626,8 @@ body {
     margin-bottom: 1.5rem;
 }
 
-.manual-content ul, .manual-content ol {
+.manual-content ul,
+.manual-content ol {
     margin-left: 1.5rem;
     margin-bottom: 1rem;
 }
