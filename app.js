@@ -1672,7 +1672,11 @@ function getWeekStart(d) {
     return dt;
 }
 
-window.closeModal = (id) => document.getElementById(id).classList.remove('show');
+window.closeModal = (id) => {
+    document.getElementById(id).classList.remove('show');
+    if (id === 'taskModal') document.getElementById('taskForm').reset();
+    if (id === 'logModal') document.getElementById('logForm').reset();
+};
 
 function showToast(msg, type = 'success') {
     const t = document.getElementById('toast');
