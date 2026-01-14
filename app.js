@@ -113,8 +113,28 @@ async function handleCloudSync() {
     const cloudState = await loadFromCloud(currentUsername);
 
     if (cloudState) {
-        // Cloud data exists - use it
-        state = { ...state, ...cloudState };
+        console.log('TimeFlow: Cloud state found, merging with local state');
+        // Merge strategy: 
+        // 1. Items: prefer one with later updated_at if exists
+        const itemMap = new Map();
+        [...(localState?.items || []), ...(cloudState.items || [])].forEach(item => {
+            const existing = itemMap.get(item.id);
+            if (!existing || (item.updatedAt > existing.updatedAt)) {
+                itemMap.set(item.id, item);
+            }
+        });
+
+        // 2. Sessions: unique by ID (sessions are generally immutable logs)
+        const sessionMap = new Map();
+        [...(localState?.sessions || []), ...(cloudState.sessions || [])].forEach(s => {
+            sessionMap.set(s.id, s);
+        });
+
+        state.items = Array.from(itemMap.values());
+        state.sessions = Array.from(sessionMap.values());
+        state.activeSessions = cloudState.activeSessions || [];
+        state.settings = { ...state.settings, ...(cloudState.settings || {}) };
+
         // Also save to user-specific local storage as backup
         saveToUserLocalStorage();
         showToast('クラウドから同期しました');
@@ -897,6 +917,7 @@ function startTask(id) {
 
 
 function stopTask(id) {
+    console.log('TimeFlow: stopTask called for', id);
     finishSession(id);
     // Clear any paused time since we recorded the full session
     delete state.pausedSessions[id];
@@ -905,12 +926,17 @@ function stopTask(id) {
     const taskIdx = state.items.findIndex(i => i.id === id);
     if (taskIdx !== -1) {
         state.items[taskIdx].archived = true;
+        state.items[taskIdx].archivedAt = new Date().toISOString();
         const [task] = state.items.splice(taskIdx, 1);
         state.items.push(task);
     }
 
-    saveState();
+    // Update UI and analysis immediately
     renderAll();
+    updateSummary();
+
+    // Save in background
+    saveState().catch(e => console.error('TimeFlow: saveState error in stopTask:', e));
 }
 
 
@@ -1308,7 +1334,12 @@ function renderTaskBreakdown(summary) {
 
 
 function calculateSummary(period, date) {
+    if (!period) period = currentPeriod || 'day';
+    if (!date) date = currentDate || new Date();
+
     const range = getPeriodRange(period, date);
+    if (!range) return { segments: [], byTask: {}, totalWithOverlap: 0, totalActual: 0 };
+
     const excludeArchived = document.getElementById('excludeArchived')?.checked || false;
 
     // Filter items based on archive status (inverted logic: default show all)
@@ -1449,6 +1480,7 @@ function getPeriodLabel(period, date) {
 }
 
 function getPeriodRange(period, date) {
+    if (!date) date = new Date();
     switch (period) {
         case 'day': return { start: startOfDay(date), end: endOfDay(date) };
         case 'week': { const s = getWeekStart(date); const e = new Date(s); e.setDate(e.getDate() + 6); return { start: s, end: endOfDay(e) }; }
@@ -1459,6 +1491,9 @@ function getPeriodRange(period, date) {
             }
             return { start: startOfDay(new Date()), end: endOfDay(new Date()) };
         }
+        default:
+            // Fallback to day if period is unknown or missing
+            return { start: startOfDay(date), end: endOfDay(date) };
     }
 }
 
