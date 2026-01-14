@@ -10,6 +10,11 @@ const STORAGE_KEYS = {
     settings: 'timeflow.settings'
 };
 
+const SUPABASE_CONFIG = {
+    url: 'https://uvdtgsrolmnokxruhjsa.supabase.co',
+    key: 'sb_publishable_P_u472Y4qc80PRMaJsu7kQ_gbC4xEfZ'
+};
+
 const DEFAULT_SETTINGS = {
     concurrencyMode: 'multi',
     maxConcurrent: 10,
@@ -26,36 +31,112 @@ let currentDate = new Date();
 let customStartDate = null;
 let customEndDate = null;
 let timerInterval = null;
-
-
+let currentUsername = null;
+let supabase = null;
 
 // ========================================
 // Initialization
 // ========================================
-document.addEventListener('DOMContentLoaded', () => {
-    loadState();
+document.addEventListener('DOMContentLoaded', async () => {
+    initSupabase();
+    await handleCloudSync();
     initClock();
     initEventListeners();
     renderAll();
     if (state.activeSessions.length > 0) startTimerLoop();
 });
 
-function loadState() {
+function initSupabase() {
+    if (typeof supabase === 'undefined' || !window.supabase) {
+        console.error('Supabase SDK not loaded');
+        return;
+    }
+    supabase = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key);
+}
+
+async function handleCloudSync() {
+    const urlParams = new URLSearchParams(window.location.search);
+    currentUsername = urlParams.get('user');
+
+    if (!currentUsername) {
+        // No user specified, fallback to LocalStorage for safety but show a hint
+        loadFromLocalStorage();
+        return;
+    }
+
+    // Try to load from Cloud
+    showToast(`${currentUsername} さんのデータを読み込み中...`);
+    const cloudState = await loadFromCloud(currentUsername);
+    if (cloudState) {
+        state = { ...state, ...cloudState };
+        showToast('クラウドから同期しました');
+    } else {
+        // First time user on cloud
+        loadFromLocalStorage();
+        showToast('新しいユーザーとして開始します');
+        await saveToCloud(); // Initialize cloud entry
+    }
+}
+
+async function loadFromCloud(username) {
+    try {
+        const { data, error } = await supabase
+            .from('user_data')
+            .select('state')
+            .eq('username', username)
+            .single();
+
+        if (error) {
+            if (error.code === 'PGRST116') return null; // Not found
+            throw error;
+        }
+        return data.state;
+    } catch (e) {
+        console.error('Cloud load error:', e);
+        return null;
+    }
+}
+
+async function saveToCloud() {
+    if (!currentUsername || !supabase) return;
+    try {
+        // Remove transient timer values before saving if any (optional)
+        const { error } = await supabase
+            .from('user_data')
+            .upsert({
+                username: currentUsername,
+                state: state,
+                updated_at: new Date().toISOString()
+            });
+
+        if (error) throw error;
+    } catch (e) {
+        console.error('Cloud save error:', e);
+    }
+}
+
+function loadFromLocalStorage() {
     try {
         state.items = JSON.parse(localStorage.getItem(STORAGE_KEYS.items) || '[]');
         state.sessions = JSON.parse(localStorage.getItem(STORAGE_KEYS.sessions) || '[]');
         state.activeSessions = JSON.parse(localStorage.getItem(STORAGE_KEYS.activeSessions) || '[]');
         state.settings = { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(STORAGE_KEYS.settings) || '{}') };
         state.pausedSessions = JSON.parse(localStorage.getItem('timeflow.pausedSessions') || '{}');
-    } catch (e) { console.error('Load error:', e); }
+    } catch (e) { console.error('Local load error:', e); }
 }
 
-function saveState() {
+async function saveState() {
+    // Save to LocalStorage (Always as a backup)
     localStorage.setItem(STORAGE_KEYS.items, JSON.stringify(state.items));
     localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify(state.sessions));
     localStorage.setItem(STORAGE_KEYS.activeSessions, JSON.stringify(state.activeSessions));
     localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(state.settings));
     localStorage.setItem('timeflow.pausedSessions', JSON.stringify(state.pausedSessions));
+
+    // Save to Cloud if user specified
+    if (currentUsername) {
+        await saveToCloud();
+    }
 }
 
 // ========================================
