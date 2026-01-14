@@ -54,7 +54,7 @@ let customStartDate = null;
 let customEndDate = null;
 let timerInterval = null;
 let currentUsername = null;
-let supabase = null;
+let supabaseClient = null;
 
 // ========================================
 // Initialization
@@ -84,7 +84,7 @@ function initSupabase() {
         console.error('Supabase SDK not loaded');
         return;
     }
-    supabase = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key);
+    supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key);
 }
 
 async function handleCloudSync() {
@@ -118,7 +118,7 @@ async function loadFromCloud(username) {
             setTimeout(() => reject(new Error('Cloud load timeout')), 5000)
         );
 
-        const fetchPromise = supabase
+        const fetchPromise = supabaseClient
             .from('user_data')
             .select('state')
             .eq('username', username)
@@ -138,10 +138,10 @@ async function loadFromCloud(username) {
 }
 
 async function saveToCloud() {
-    if (!currentUsername || !supabase) return;
+    if (!currentUsername || !supabaseClient) return;
     try {
         // Remove transient timer values before saving if any (optional)
-        const { error } = await supabase
+        const { error } = await supabaseClient
             .from('user_data')
             .upsert({
                 username: currentUsername,
