@@ -47,7 +47,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function initSupabase() {
-    if (typeof supabase === 'undefined' || !window.supabase) {
+    if (!window.supabase) {
         console.error('Supabase SDK not loaded');
         return;
     }
