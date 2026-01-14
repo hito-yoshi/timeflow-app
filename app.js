@@ -76,7 +76,15 @@ window.onload = async () => {
 
     // 3. Final Render
     renderAll();
-    if (state.activeSessions.filter(s => s).length > 0) startTimerLoop();
+
+    // 4. Start timer loop if there are active sessions
+    // Use a clean check that filters out null/undefined values
+    const hasActiveSessions = state.activeSessions && state.activeSessions.filter(s => s && s.itemId).length > 0;
+    console.log('TimeFlow: Active sessions check:', hasActiveSessions, state.activeSessions);
+    if (hasActiveSessions) {
+        console.log('TimeFlow: Starting timer loop for active sessions');
+        startTimerLoop();
+    }
 };
 
 function initSupabase() {
@@ -97,28 +105,31 @@ async function handleCloudSync() {
         return;
     }
 
-    // Try to load from Cloud first
+    // First, try to load from user-specific local storage (always available, no network needed)
+    const localState = loadFromUserLocalStorage();
+
+    // Try to load from Cloud
     showToast(`${currentUsername} さんのデータを読み込み中...`);
     const cloudState = await loadFromCloud(currentUsername);
+
     if (cloudState) {
         // Cloud data exists - use it
         state = { ...state, ...cloudState };
         // Also save to user-specific local storage as backup
         saveToUserLocalStorage();
         showToast('クラウドから同期しました');
+    } else if (localState) {
+        // Cloud failed or empty, but we have local data - use it
+        state = { ...state, ...localState };
+        showToast('ローカルデータから復元しました');
+        // Try to sync to cloud (don't await, do in background)
+        saveToCloud().catch(e => console.error('Background cloud sync error:', e));
     } else {
-        // Check if there's user-specific local storage first
-        const localState = loadFromUserLocalStorage();
-        if (localState) {
-            state = { ...state, ...localState };
-            showToast('ローカルデータから復元しました');
-            await saveToCloud(); // Sync to cloud
-        } else {
-            // Truly new user - start with empty state (don't inherit from other users)
-            resetToEmptyState();
-            showToast('新しいユーザーとして開始します');
-            await saveToCloud(); // Initialize cloud entry
-        }
+        // Truly new user - start with empty state (don't inherit from other users)
+        resetToEmptyState();
+        showToast('新しいユーザーとして開始します');
+        // Try to save to cloud (don't await)
+        saveToCloud().catch(e => console.error('Background cloud sync error:', e));
     }
 }
 
@@ -940,12 +951,24 @@ function finishSession(itemId) {
 }
 
 function startTimerLoop() {
-    if (timerInterval) return;
+    if (timerInterval) {
+        console.log('TimeFlow: Timer loop already running');
+        return;
+    }
+    console.log('TimeFlow: Starting timer loop');
     timerInterval = setInterval(updateTimers, 1000);
+    // Immediately call updateTimers once to show initial values
+    updateTimers();
 }
 
 function stopTimerLoop() {
-    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    if (timerInterval) {
+        console.log('TimeFlow: Stopping timer loop');
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+    // Reset the analysis update counter when stopping
+    analysisUpdateCounter = 0;
 }
 
 // Counter for 5-second interval updates (more reliable than timestamp comparison)
