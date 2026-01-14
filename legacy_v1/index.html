@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>作業時間集計アプリ</title>
+  <meta name="description" content="タスクの作業時間を記録・集計し、グラフで可視化するツール">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1 class="app-title">⏱️ 作業時間集計</h1>
+    <div class="header-actions">
+      <button id="themeToggle" class="btn btn-icon" title="テーマ切替">
+        <span class="theme-icon">🌙</span>
+      </button>
+      <button id="exportBtn" class="btn btn-secondary">エクスポート</button>
+      <button id="importBtn" class="btn btn-secondary">インポート</button>
+      <input type="file" id="importFile" accept=".json" style="display:none">
+      <button id="settingsBtn" class="btn btn-icon" title="設定">⚙️</button>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <section class="panel panel-tasks">
+      <div class="panel-header">
+        <h2>タスク管理</h2>
+        <button id="addTaskBtn" class="btn btn-primary">+ タスク追加</button>
+      </div>
+      <div id="taskList" class="task-list"></div>
+    </section>
+
+    <section class="panel panel-summary">
+      <div class="panel-header">
+        <h2>サマリー</h2>
+      </div>
+      <div class="period-controls">
+        <div class="period-tabs">
+          <button class="period-tab active" data-period="day">日</button>
+          <button class="period-tab" data-period="week">週</button>
+          <button class="period-tab" data-period="month">月</button>
+          <button class="period-tab" data-period="year">年</button>
+          <button class="period-tab" data-period="all">全期間</button>
+        </div>
+        <div class="period-nav">
+          <button id="prevPeriod" class="btn btn-icon">◀</button>
+          <input type="date" id="periodDate" class="period-date-input">
+          <button id="nextPeriod" class="btn btn-icon">▶</button>
+        </div>
+      </div>
+      <div class="summary-stats">
+        <div class="stat-card">
+          <span class="stat-label">期間合計（重複込み）</span>
+          <span id="totalWithOverlap" class="stat-value">0:00:00</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">期間合計（実働）</span>
+          <span id="totalActual" class="stat-value">0:00:00</span>
+        </div>
+      </div>
+      <div class="chart-container">
+        <canvas id="summaryChart"></canvas>
+        <div id="chartTooltip" class="chart-tooltip"></div>
+      </div>
+      <div class="legend" id="chartLegend"></div>
+      <div class="task-summary-table">
+        <table id="taskSummaryTable">
+          <thead>
+            <tr>
+              <th>タスク</th>
+              <th>合計時間</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <section class="panel panel-logs">
+    <div class="panel-header">
+      <h2>ログ一覧</h2>
+      <button id="addLogBtn" class="btn btn-primary">+ ログ追加</button>
+    </div>
+    <div class="log-filters">
+      <select id="logFilterTask">
+        <option value="">すべてのタスク</option>
+      </select>
+      <input type="date" id="logFilterDateFrom" placeholder="開始日">
+      <input type="date" id="logFilterDateTo" placeholder="終了日">
+      <button id="clearLogFilter" class="btn btn-secondary">クリア</button>
+    </div>
+    <div class="log-list-container">
+      <table id="logTable" class="log-table">
+        <thead>
+          <tr>
+            <th>日付</th>
+            <th>タスク</th>
+            <th>開始</th>
+            <th>終了</th>
+            <th>所要時間</th>
+            <th>メモ</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="logTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- タスク追加/編集モーダル -->
+  <div id="taskModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="taskModalTitle">タスク追加</h3>
+        <button class="modal-close" data-modal="taskModal">&times;</button>
+      </div>
+      <form id="taskForm">
+        <div class="form-group">
+          <label for="taskName">タスク名 <span class="required">*</span></label>
+          <input type="text" id="taskName" required>
+        </div>
+        <div class="form-group">
+          <label for="taskColor">色</label>
+          <input type="color" id="taskColor" value="#4A90D9">
+        </div>
+        <div class="form-group">
+          <label for="taskNote">メモ</label>
+          <textarea id="taskNote" rows="3"></textarea>
+        </div>
+        <input type="hidden" id="taskEditId">
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" data-modal="taskModal">キャンセル</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ログ追加/編集モーダル -->
+  <div id="logModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="logModalTitle">ログ追加</h3>
+        <button class="modal-close" data-modal="logModal">&times;</button>
+      </div>
+      <form id="logForm">
+        <div class="form-group">
+          <label for="logTask">タスク <span class="required">*</span></label>
+          <select id="logTask" required></select>
+        </div>
+        <div class="form-group">
+          <label for="logStartAt">開始日時 <span class="required">*</span></label>
+          <input type="datetime-local" id="logStartAt" required>
+        </div>
+        <div class="form-group">
+          <label for="logEndAt">終了日時 <span class="required">*</span></label>
+          <input type="datetime-local" id="logEndAt" required>
+        </div>
+        <div class="form-group">
+          <label for="logNote">メモ</label>
+          <textarea id="logNote" rows="3"></textarea>
+        </div>
+        <input type="hidden" id="logEditId">
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" data-modal="logModal">キャンセル</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 設定モーダル -->
+  <div id="settingsModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>設定</h3>
+        <button class="modal-close" data-modal="settingsModal">&times;</button>
+      </div>
+      <form id="settingsForm">
+        <div class="form-group">
+          <label for="concurrencyMode">同時稼働モード</label>
+          <select id="concurrencyMode">
+            <option value="single">シングル（1つのみ）</option>
+            <option value="multi">マルチ（複数可）</option>
+          </select>
+        </div>
+        <div class="form-group" id="maxConcurrentGroup" style="display:none">
+          <label for="maxConcurrent">最大同時稼働数</label>
+          <input type="number" id="maxConcurrent" min="1" max="10" value="3">
+        </div>
+        <div class="form-group">
+          <label for="themeSelect">テーマ</label>
+          <select id="themeSelect">
+            <option value="system">システム設定に従う</option>
+            <option value="light">ライト</option>
+            <option value="dark">ダーク</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" data-modal="settingsModal">閉じる</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- トースト通知 -->
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
