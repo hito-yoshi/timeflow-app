@@ -3,6 +3,25 @@
  * All features from original specification
  */
 
+console.log('TimeFlow: app.js loaded and executing...');
+
+// Pre-define switchView globally to ensure it's available immediately
+window.switchView = function (view) {
+    console.log('switchView called with:', view);
+    const titles = { dashboard: 'ダッシュボード', tasks: 'タスク管理', logs: 'ログ一覧', settings: '設定' };
+    const pageTitleEl = document.getElementById('pageTitle');
+    if (pageTitleEl) pageTitleEl.textContent = titles[view] || '';
+
+    document.querySelectorAll('.view-container').forEach(v => v.classList.add('hidden'));
+    const viewEl = document.getElementById(view + 'View');
+    if (viewEl) viewEl.classList.remove('hidden');
+
+    if (view === 'dashboard' && typeof renderAll === 'function') renderAll();
+    if (view === 'logs' && typeof renderLogTable === 'function') renderLogTable();
+    if (view === 'tasks' && typeof renderFullTaskList === 'function') renderFullTaskList();
+    if (view === 'settings' && typeof loadSettingsForm === 'function') loadSettingsForm();
+};
+
 const STORAGE_KEYS = {
     items: 'timeflow.items',
     sessions: 'timeflow.sessions',
@@ -268,19 +287,19 @@ function initEventListeners() {
     setupChartTooltip();
 }
 
-window.switchView = function (view) {
-    const titles = { dashboard: 'ダッシュボード', tasks: 'タスク管理', logs: 'ログ一覧', settings: '設定' };
-    const pageTitleEl = document.getElementById('pageTitle');
-    if (pageTitleEl) pageTitleEl.textContent = titles[view] || '';
+// Function already defined at the top for global availability
+const titles = { dashboard: 'ダッシュボード', tasks: 'タスク管理', logs: 'ログ一覧', settings: '設定' };
+const pageTitleEl = document.getElementById('pageTitle');
+if (pageTitleEl) pageTitleEl.textContent = titles[view] || '';
 
-    document.querySelectorAll('.view-container').forEach(v => v.classList.add('hidden'));
-    const viewEl = document.getElementById(view + 'View');
-    if (viewEl) viewEl.classList.remove('hidden');
+document.querySelectorAll('.view-container').forEach(v => v.classList.add('hidden'));
+const viewEl = document.getElementById(view + 'View');
+if (viewEl) viewEl.classList.remove('hidden');
 
-    if (view === 'dashboard') renderAll();
-    if (view === 'logs') renderLogTable();
-    if (view === 'tasks') renderFullTaskList();
-    if (view === 'settings') loadSettingsForm();
+if (view === 'dashboard') renderAll();
+if (view === 'logs') renderLogTable();
+if (view === 'tasks') renderFullTaskList();
+if (view === 'settings') loadSettingsForm();
 };
 
 // ========================================
