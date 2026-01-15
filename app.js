@@ -1101,7 +1101,21 @@ window.openMiniDashboard = () => {
 
     renderMiniWindowContent();
 
+    // Periodic sync to ensure mini window stays updated
+    window.miniWindowSyncInterval = setInterval(() => {
+        if (window.miniWindow && !window.miniWindow.closed) {
+            renderMiniWindowContent();
+        } else {
+            clearInterval(window.miniWindowSyncInterval);
+            window.miniWindowSyncInterval = null;
+        }
+    }, 500); // Sync every 500ms
+
     window.miniWindow.addEventListener('pagehide', () => {
+        if (window.miniWindowSyncInterval) {
+            clearInterval(window.miniWindowSyncInterval);
+            window.miniWindowSyncInterval = null;
+        }
         window.miniWindow = null;
     });
 };

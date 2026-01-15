@@ -2747,6 +2747,11 @@ body {
     overflow: visible !important;
 }
 
+/* Task card needs overflow visible for tooltips */
+.card-tasks-new {
+    overflow: visible !important;
+}
+
 /* Tooltip positioning fix */
 [data-tooltip] {
     position: relative;
@@ -2756,7 +2761,7 @@ body {
 [data-tooltip]::after {
     content: attr(data-tooltip);
     position: absolute;
-    top: calc(100% + 8px);
+    bottom: calc(100% + 8px);
     left: 50%;
     transform: translateX(-50%);
     padding: 6px 12px;
@@ -2778,4 +2783,11 @@ body {
 [data-tooltip]:hover::after {
     opacity: 1;
     visibility: visible;
+}
+
+/* Fix for right-edge tooltips (last button in header) */
+.card-header>div>[data-tooltip]:last-child::after {
+    left: auto;
+    right: 0;
+    transform: none;
 }
