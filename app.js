@@ -1131,30 +1131,22 @@ window.renderMiniWindowContent = () => {
     // Active and Paused items unique list
     const targetIds = [...new Set([...activeList, ...pausedList])];
 
-    const targetItems = state.items.filter(i => targetIds.includes(i.id));
+    // Use dashboard order (state.items order) - filter to only active/paused but keep original order
+    const targetItems = state.items.filter(i => targetIds.includes(i.id) && !i.archived);
 
     if (targetItems.length === 0) {
         container.innerHTML = '<div class="empty-msg" style="padding:2rem;text-align:center;color:#6b7280;font-size:13px;">アクティブなタスクは<br>ありません</div>';
         return;
     }
 
-    const sortedItems = [];
-    // Adds active ones
-    state.activeSessions.forEach(s => {
-        const item = targetItems.find(i => i.id === s.itemId);
-        if (item) sortedItems.push({ item, isActive: true, isPaused: false, session: s });
-    });
-    // Adds paused ones
-    targetItems.forEach(item => {
-        if (state.pausedSessions[item.id] && !sortedItems.find(x => x.item.id === item.id)) {
-            sortedItems.push({ item, isActive: false, isPaused: true });
-        }
-    });
+    const html = targetItems.map(item => {
+        const activeSession = state.activeSessions.find(s => s.itemId === item.id);
+        const isActive = !!activeSession;
+        const isPaused = !!state.pausedSessions[item.id];
 
-    const html = sortedItems.map(({ item, isActive, isPaused, session }) => {
         let timerDisplay = '00:00:00';
         if (isActive) {
-            const elapsed = (session.accumulatedMs || 0) + (Date.now() - new Date(session.startAt).getTime());
+            const elapsed = (activeSession.accumulatedMs || 0) + (Date.now() - new Date(activeSession.startAt).getTime());
             timerDisplay = formatDuration(elapsed);
         } else if (isPaused) {
             timerDisplay = formatDuration(state.pausedSessions[item.id]);
@@ -1176,7 +1168,7 @@ window.renderMiniWindowContent = () => {
         }
 
         return `
-            <div class="task-item ${isActive ? 'active' : 'paused'}" style="margin-bottom:8px;">
+            <div class="task-item ${isActive ? 'active' : 'paused'}" draggable="true" data-id="${item.id}" style="margin-bottom:8px;">
                 <div class="task-color" style="background:${item.color};--task-glow-color:${item.color}"></div>
                 <div class="task-details">
                      <div class="task-title" style="font-size:13px;">${escapeHtml(item.name)}</div>
@@ -1196,7 +1188,63 @@ window.renderMiniWindowContent = () => {
         doc.body.appendChild(contentDiv);
     }
     contentDiv.innerHTML = html;
+
+    // Add drag and drop functionality to mini window
+    setupMiniWindowDragAndDrop(doc);
 };
+
+// Mini window drag and drop setup
+function setupMiniWindowDragAndDrop(doc) {
+    const items = doc.querySelectorAll('.task-item[draggable="true"]');
+    let draggedItem = null;
+
+    items.forEach(item => {
+        item.addEventListener('dragstart', (e) => {
+            draggedItem = item;
+            item.style.opacity = '0.5';
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', item.dataset.id);
+        });
+
+        item.addEventListener('dragend', () => {
+            item.style.opacity = '1';
+            draggedItem = null;
+            // Remove all drag-over styles
+            doc.querySelectorAll('.task-item').forEach(i => i.classList.remove('drag-over'));
+        });
+
+        item.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        });
+
+        item.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            if (item !== draggedItem) {
+                item.classList.add('drag-over');
+            }
+        });
+
+        item.addEventListener('dragleave', () => {
+            item.classList.remove('drag-over');
+        });
+
+        item.addEventListener('drop', (e) => {
+            e.preventDefault();
+            item.classList.remove('drag-over');
+
+            if (draggedItem && draggedItem !== item) {
+                const draggedId = draggedItem.dataset.id;
+                const targetId = item.dataset.id;
+
+                // Reorder in main window's state
+                if (window.opener && window.opener.reorderTasks) {
+                    window.opener.reorderTasks(draggedId, targetId);
+                }
+            }
+        });
+    });
+}
 
 // Counter for 5-second interval updates (more reliable than timestamp comparison)
 let analysisUpdateCounter = 0;
@@ -2148,6 +2196,21 @@ function handleDrop(e) {
     renderQuickTaskList();
 
 }
+
+// Global reorderTasks function for mini window drag and drop
+window.reorderTasks = function (draggedId, targetId) {
+    const draggedIndex = state.items.findIndex(i => i.id === draggedId);
+    const targetIndex = state.items.findIndex(i => i.id === targetId);
+
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    // Reorder array
+    const [removed] = state.items.splice(draggedIndex, 1);
+    state.items.splice(targetIndex, 0, removed);
+
+    saveState();
+    renderAll();
+};
 
 // Dashboard Drag and Drop
 function initDashboardDragAndDrop() {
