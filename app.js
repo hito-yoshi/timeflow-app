@@ -403,8 +403,8 @@ function renderQuickTaskList(animateId = null) {
         return;
     }
 
-    // Use manual order from state.items directly to respect drag & drop results
-    const displayTasks = activeTasks;
+    // Sort tasks: Active first → Deadline ascending → Manual order preserved
+    const displayTasks = sortTasksByPriority(activeTasks);
 
     // Render tasks
     html += displayTasks.map(item => {
@@ -1131,8 +1131,9 @@ window.renderMiniWindowContent = () => {
     // Active and Paused items unique list
     const targetIds = [...new Set([...activeList, ...pausedList])];
 
-    // Use dashboard order (state.items order) - filter to only active/paused but keep original order
-    const targetItems = state.items.filter(i => targetIds.includes(i.id) && !i.archived);
+    // Filter to only active/paused and apply same sorting as dashboard
+    const filteredItems = state.items.filter(i => targetIds.includes(i.id) && !i.archived);
+    const targetItems = sortTasksByPriority(filteredItems);
 
     if (targetItems.length === 0) {
         container.innerHTML = '<div class="empty-msg" style="padding:2rem;text-align:center;color:#6b7280;font-size:13px;">アクティブなタスクは<br>ありません</div>';
@@ -2204,6 +2205,15 @@ function handleDrop(e) {
     const [removed] = state.items.splice(draggedIndex, 1);
     state.items.splice(targetIndex, 0, removed);
 
+    // Set manualOrder on all non-archived items to preserve this order
+    let orderIndex = 0;
+    state.items.forEach(item => {
+        if (!item.archived) {
+            item.manualOrder = orderIndex++;
+            item.updatedAt = new Date().toISOString();
+        }
+    });
+
     saveState();
     renderFullTaskList();
     renderQuickTaskList();
@@ -2220,6 +2230,15 @@ window.reorderTasks = function (draggedId, targetId) {
     // Reorder array
     const [removed] = state.items.splice(draggedIndex, 1);
     state.items.splice(targetIndex, 0, removed);
+
+    // Set manualOrder on all non-archived items to preserve this order
+    let orderIndex = 0;
+    state.items.forEach(item => {
+        if (!item.archived) {
+            item.manualOrder = orderIndex++;
+            item.updatedAt = new Date().toISOString();
+        }
+    });
 
     saveState();
     renderAll();
@@ -2389,3 +2408,108 @@ if (document.readyState === 'loading') {
 } else {
     initTaskCardResize();
 }
+
+// ========================================
+// Tooltip System (Fixed Position - escapes overflow)
+// ========================================
+let tooltipEl = null;
+
+function initTooltips() {
+    // Create a single fixed tooltip element
+    if (!tooltipEl) {
+        tooltipEl = document.createElement('div');
+        tooltipEl.className = 'tooltip-fixed';
+        document.body.appendChild(tooltipEl);
+    }
+
+    // Attach listeners to all data-tooltip elements
+    document.addEventListener('mouseover', function (e) {
+        const target = e.target.closest('[data-tooltip]');
+        if (!target) return;
+
+        const tooltipText = target.getAttribute('data-tooltip');
+        if (!tooltipText) return;
+
+        tooltipEl.textContent = tooltipText;
+
+        // Position above the element
+        const rect = target.getBoundingClientRect();
+        const tooltipRect = tooltipEl.getBoundingClientRect();
+
+        // Show temporarily to measure
+        tooltipEl.style.visibility = 'hidden';
+        tooltipEl.style.opacity = '0';
+        tooltipEl.classList.add('visible');
+
+        // Calculate position (above the element, centered)
+        let left = rect.left + (rect.width / 2) - (tooltipEl.offsetWidth / 2);
+        let top = rect.top - tooltipEl.offsetHeight - 8;
+
+        // Prevent going off-screen on top
+        if (top < 5) {
+            top = rect.bottom + 8; // Show below if can't fit above
+        }
+
+        // Prevent going off-screen on left/right
+        if (left < 5) left = 5;
+        if (left + tooltipEl.offsetWidth > window.innerWidth - 5) {
+            left = window.innerWidth - tooltipEl.offsetWidth - 5;
+        }
+
+        tooltipEl.style.left = left + 'px';
+        tooltipEl.style.top = top + 'px';
+        tooltipEl.style.visibility = 'visible';
+        tooltipEl.style.opacity = '1';
+    });
+
+    document.addEventListener('mouseout', function (e) {
+        const target = e.target.closest('[data-tooltip]');
+        if (!target) return;
+
+        tooltipEl.classList.remove('visible');
+        tooltipEl.style.opacity = '0';
+        tooltipEl.style.visibility = 'hidden';
+    });
+}
+
+// Initialize tooltips when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initTooltips);
+} else {
+    initTooltips();
+}
+
+// ========================================
+// Task Order Utility
+// ========================================
+// Order rules: Active tasks first → Sorted by deadline (nearest first) → Preserve state.items order for manual reordering
+function sortTasksByPriority(tasks) {
+    return tasks.slice().sort((a, b) => {
+        // 1. Check if either item has a manual order set (preserve drag & drop order)
+        // Items with manualOrder key take priority in their manual position
+        if (a.manualOrder !== undefined && b.manualOrder !== undefined) {
+            return a.manualOrder - b.manualOrder;
+        }
+
+        // 2. Active tasks first
+        const aActive = state.activeSessions.some(s => s.itemId === a.id);
+        const bActive = state.activeSessions.some(s => s.itemId === b.id);
+        if (aActive && !bActive) return -1;
+        if (!aActive && bActive) return 1;
+
+        // 3. Paused tasks next
+        const aPaused = !!state.pausedSessions[a.id];
+        const bPaused = !!state.pausedSessions[b.id];
+        if (aPaused && !bPaused) return -1;
+        if (!aPaused && bPaused) return 1;
+
+        // 4. Sort by deadline (nearest first, no deadline = last)
+        const aDate = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+        const bDate = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+        if (aDate !== bDate) return aDate - bDate;
+
+        // 5. Keep original order from state.items
+        return 0;
+    });
+}
+

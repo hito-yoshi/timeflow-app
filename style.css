@@ -2703,36 +2703,35 @@ body {
     margin-bottom: 0;
 }
 
-/* Tooltips */
+/* Tooltips - Using JavaScript for fixed positioning */
+/* Disabled pseudo-element tooltip (cannot escape overflow containers) */
 [data-tooltip] {
     position: relative;
     cursor: pointer;
 }
 
-[data-tooltip]::after {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 6px 10px;
-    background: rgba(0, 0, 0, 0.85);
+/* Fixed position tooltip container (added by JavaScript) */
+.tooltip-fixed {
+    position: fixed;
+    padding: 6px 12px;
+    background: rgba(17, 24, 39, 0.95);
     color: #fff;
-    font-size: 12px;
-    border-radius: 4px;
+    font-size: 11px;
+    border-radius: 6px;
     white-space: nowrap;
-    opacity: 0;
     pointer-events: none;
-    transition: opacity 0.2s, transform 0.2s;
-    margin-bottom: 8px;
-    z-index: 1000;
+    z-index: 99999;
     font-weight: 500;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease, visibility 0.15s ease;
 }
 
-[data-tooltip]:hover::after {
+.tooltip-fixed.visible {
     opacity: 1;
-    transform: translateX(-50%) translateY(-4px);
+    visibility: visible;
 }
 
 /* Mini Window Overrides */
@@ -2755,46 +2754,6 @@ body {
 /* Card header must allow tooltip overflow */
 .card-tasks-new .card-header {
     overflow: visible !important;
-}
-
-/* Tooltip positioning fix */
-[data-tooltip] {
-    position: relative;
-    overflow: visible !important;
-}
-
-[data-tooltip]::after {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 6px 12px;
-    background: rgba(17, 24, 39, 0.95);
-    color: #fff;
-    font-size: 11px;
-    border-radius: 6px;
-    white-space: nowrap;
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition: opacity 0.15s ease, visibility 0.15s ease;
-    z-index: 9999;
-    font-weight: 500;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-[data-tooltip]:hover::after {
-    opacity: 1;
-    visibility: visible;
-}
-
-/* Fix for right-edge tooltips (last button in header) */
-.card-header>div>[data-tooltip]:last-child::after {
-    left: auto;
-    right: 0;
-    transform: none;
 }
 
 /* Mini window drag over effect */
