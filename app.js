@@ -1087,7 +1087,7 @@ window.openMiniDashboard = () => {
     doc.head.innerHTML = `
         <meta charset="UTF-8">
         <title>TimeFlow Mini</title>
-        <link rel="stylesheet" href="style.css"> 
+        <link rel="stylesheet" href="${window.location.origin}/style.css"> 
         <style>
             body.mini-window-body { padding: 12px; background: var(--bg-body, #111827); color: var(--text-main, #fff); overflow-y: auto; }
             .mini-window-body .empty-msg { text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 2rem; opacity: 0.7; }
