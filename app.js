@@ -938,6 +938,8 @@ function startTask(id) {
     renderStats();
     renderQuickTaskList(id);
     renderFullTaskList();
+    // Sync mini window
+    if (typeof renderMiniWindowContent === 'function') renderMiniWindowContent();
 
     // Save state in background (don't block timer start)
     saveState().catch(e => console.error('TimeFlow: saveState error:', e));
@@ -983,6 +985,8 @@ window.stopTask = (id) => {
     // Update UI and analysis immediately
     renderAll();
     updateSummary();
+    // Sync mini window explicitly
+    if (typeof renderMiniWindowContent === 'function') renderMiniWindowContent();
 
     // Save in background
     saveState().catch(e => console.error('TimeFlow: saveState error in stopTask:', e));
