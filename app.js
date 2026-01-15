@@ -1195,47 +1195,57 @@ window.renderMiniWindowContent = () => {
 
 // Mini window drag and drop setup
 function setupMiniWindowDragAndDrop(doc) {
+    const miniWin = window.miniWindow;
+    if (!miniWin) return;
+
+    // Store draggedItem in mini window's global scope
+    miniWin.draggedItem = null;
+
     const items = doc.querySelectorAll('.task-item[draggable="true"]');
-    let draggedItem = null;
 
     items.forEach(item => {
-        item.addEventListener('dragstart', (e) => {
-            draggedItem = item;
-            item.style.opacity = '0.5';
+        // Remove old listeners by cloning
+        const newItem = item.cloneNode(true);
+        item.parentNode.replaceChild(newItem, item);
+
+        newItem.addEventListener('dragstart', function (e) {
+            miniWin.draggedItem = this;
+            this.style.opacity = '0.5';
+            this.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', item.dataset.id);
+            e.dataTransfer.setData('text/plain', this.dataset.id);
         });
 
-        item.addEventListener('dragend', () => {
-            item.style.opacity = '1';
-            draggedItem = null;
-            // Remove all drag-over styles
+        newItem.addEventListener('dragend', function () {
+            this.style.opacity = '1';
+            this.classList.remove('dragging');
+            miniWin.draggedItem = null;
             doc.querySelectorAll('.task-item').forEach(i => i.classList.remove('drag-over'));
         });
 
-        item.addEventListener('dragover', (e) => {
+        newItem.addEventListener('dragover', function (e) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
         });
 
-        item.addEventListener('dragenter', (e) => {
+        newItem.addEventListener('dragenter', function (e) {
             e.preventDefault();
-            if (item !== draggedItem) {
-                item.classList.add('drag-over');
+            if (this !== miniWin.draggedItem) {
+                this.classList.add('drag-over');
             }
         });
 
-        item.addEventListener('dragleave', () => {
-            item.classList.remove('drag-over');
+        newItem.addEventListener('dragleave', function () {
+            this.classList.remove('drag-over');
         });
 
-        item.addEventListener('drop', (e) => {
+        newItem.addEventListener('drop', function (e) {
             e.preventDefault();
-            item.classList.remove('drag-over');
+            this.classList.remove('drag-over');
 
-            if (draggedItem && draggedItem !== item) {
-                const draggedId = draggedItem.dataset.id;
-                const targetId = item.dataset.id;
+            if (miniWin.draggedItem && miniWin.draggedItem !== this) {
+                const draggedId = miniWin.draggedItem.dataset.id;
+                const targetId = this.dataset.id;
 
                 // Reorder in main window's state
                 if (window.opener && window.opener.reorderTasks) {
