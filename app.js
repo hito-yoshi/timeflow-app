@@ -1195,11 +1195,14 @@ window.renderMiniWindowContent = () => {
 
 // Mini window drag and drop setup
 function setupMiniWindowDragAndDrop(doc) {
-    const miniWin = window.miniWindow;
+    const miniWin = doc.defaultView; // Get the mini window's window object
     if (!miniWin) return;
 
+    // Store reorderTasks reference (this function is called from main window)
+    const mainReorderTasks = window.reorderTasks;
+
     // Store draggedItem in mini window's global scope
-    miniWin.draggedItem = null;
+    miniWin._draggedItem = null;
 
     const items = doc.querySelectorAll('.task-item[draggable="true"]');
 
@@ -1209,7 +1212,7 @@ function setupMiniWindowDragAndDrop(doc) {
         item.parentNode.replaceChild(newItem, item);
 
         newItem.addEventListener('dragstart', function (e) {
-            miniWin.draggedItem = this;
+            miniWin._draggedItem = this;
             this.style.opacity = '0.5';
             this.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'move';
@@ -1219,7 +1222,7 @@ function setupMiniWindowDragAndDrop(doc) {
         newItem.addEventListener('dragend', function () {
             this.style.opacity = '1';
             this.classList.remove('dragging');
-            miniWin.draggedItem = null;
+            miniWin._draggedItem = null;
             doc.querySelectorAll('.task-item').forEach(i => i.classList.remove('drag-over'));
         });
 
@@ -1230,7 +1233,7 @@ function setupMiniWindowDragAndDrop(doc) {
 
         newItem.addEventListener('dragenter', function (e) {
             e.preventDefault();
-            if (this !== miniWin.draggedItem) {
+            if (this !== miniWin._draggedItem) {
                 this.classList.add('drag-over');
             }
         });
@@ -1243,13 +1246,13 @@ function setupMiniWindowDragAndDrop(doc) {
             e.preventDefault();
             this.classList.remove('drag-over');
 
-            if (miniWin.draggedItem && miniWin.draggedItem !== this) {
-                const draggedId = miniWin.draggedItem.dataset.id;
+            if (miniWin._draggedItem && miniWin._draggedItem !== this) {
+                const draggedId = miniWin._draggedItem.dataset.id;
                 const targetId = this.dataset.id;
 
-                // Reorder in main window's state
-                if (window.opener && window.opener.reorderTasks) {
-                    window.opener.reorderTasks(draggedId, targetId);
+                // Reorder using the stored function reference
+                if (mainReorderTasks) {
+                    mainReorderTasks(draggedId, targetId);
                 }
             }
         });
