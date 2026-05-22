@@ -1482,6 +1482,48 @@ window.handleMiniStopTask = (id) => {
     renderMiniWindowContent({ force: true });
 };
 
+window.toggleMiniTaskForm = () => {
+    if (!window.miniWindow || window.miniWindow.closed) return;
+    const form = window.miniWindow.document.getElementById('miniTaskForm');
+    const input = window.miniWindow.document.getElementById('miniTaskName');
+    if (!form) return;
+    form.classList.toggle('hidden');
+    if (!form.classList.contains('hidden') && input) input.focus();
+};
+
+window.createTaskFromMiniWindow = () => {
+    if (!window.miniWindow || window.miniWindow.closed) return false;
+    const doc = window.miniWindow.document;
+    const input = doc.getElementById('miniTaskName');
+    const noteInput = doc.getElementById('miniTaskNote');
+    const name = input?.value.trim() || '';
+    if (!name) {
+        input?.focus();
+        return false;
+    }
+
+    const newId = generateId();
+    state.items.unshift(normalizeTask({
+        id: newId,
+        name,
+        color: COLORS[state.items.length % COLORS.length],
+        note: noteInput?.value.trim() || '',
+        estimatedHours: '',
+        dueDate: '',
+        status: TASK_STATUS.ready,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+    }));
+
+    startTask(newId);
+    saveState().catch(e => console.error('createTaskFromMiniWindow save error:', e));
+    showToast('タスクを追加して開始しました');
+    renderAll();
+    renderFullTaskList();
+    renderMiniWindowContent({ force: true });
+    return false;
+};
+
 window.renderMiniWindowContent = ({ force = true } = {}) => {
     if (!window.miniWindow || window.miniWindow.closed) return;
     const doc = window.miniWindow.document;
@@ -1505,12 +1547,9 @@ window.renderMiniWindowContent = ({ force = true } = {}) => {
 
     miniWindowRenderSignature = nextSignature;
 
-    if (targetItems.length === 0) {
-        container.innerHTML = '<div class="empty-msg" style="padding:2rem;text-align:center;color:#6b7280;font-size:13px;">アクティブなタスクは<br>ありません</div>';
-        return;
-    }
-
-    const html = targetItems.map(item => {
+    const itemsHtml = targetItems.length === 0
+        ? '<div class="empty-msg" style="padding:2rem;text-align:center;color:#6b7280;font-size:13px;">アクティブなタスクは<br>ありません</div>'
+        : targetItems.map(item => {
         const activeSession = state.activeSessions.find(s => s.itemId === item.id);
         const isActive = !!activeSession;
         const isPaused = !!state.pausedSessions[item.id];
@@ -1550,6 +1589,20 @@ window.renderMiniWindowContent = ({ force = true } = {}) => {
         `;
     }).join('');
 
+    const addTaskHtml = `
+        <div class="mini-add-task">
+            <button class="mini-add-toggle" onclick="window.opener.toggleMiniTaskForm()" title="タスクを追加">＋</button>
+            <form id="miniTaskForm" class="mini-task-form hidden" onsubmit="return window.opener.createTaskFromMiniWindow()">
+                <input id="miniTaskName" class="mini-task-input" type="text" placeholder="タスク名" autocomplete="off">
+                <input id="miniTaskNote" class="mini-task-input" type="text" placeholder="メモ" autocomplete="off">
+                <div class="mini-task-actions">
+                    <button type="button" class="btn btn-sm btn-ghost" onclick="window.opener.toggleMiniTaskForm()">キャンセル</button>
+                    <button type="submit" class="btn btn-sm btn-primary">追加して開始</button>
+                </div>
+            </form>
+        </div>
+    `;
+
     // Ensure we don't wipe styles if we were to append, but here we replace body innerHTML? 
     // No, that kills styles. Let's create a main container.
     let contentDiv = doc.getElementById('miniContent');
@@ -1558,7 +1611,7 @@ window.renderMiniWindowContent = ({ force = true } = {}) => {
         contentDiv.id = 'miniContent';
         doc.body.appendChild(contentDiv);
     }
-    contentDiv.innerHTML = html;
+    contentDiv.innerHTML = itemsHtml + addTaskHtml;
 
     // Add drag and drop functionality to mini window
     setupMiniWindowDragAndDrop(doc);
