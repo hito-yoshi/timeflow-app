@@ -65,6 +65,7 @@ let lastCloudRefreshAt = 0;
 let cloudRefreshInFlight = false;
 let activitySaveInterval = null;
 let lastTimerPaintAt = 0;
+let miniWindowRenderSignature = '';
 
 // ========================================
 // Initialization
@@ -725,21 +726,21 @@ function renderQuickTaskList(animateId = null) {
     }).join('');
 
     if (waitingTasks.length) {
-        html += `<div class="task-section-label">待ち</div>`;
+        html += `<div class="task-section-label">確認待ち</div>`;
         html += sortTasksByPriority(waitingTasks).map(item => {
             const estimatedDisplay = item.estimatedHours ? `<span class="task-estimated">(${item.estimatedHours})</span>` : '';
             const dueDateDisplay = item.dueDate ? `<span class="task-due-date">期日: ${formatDateShort(item.dueDate)}</span>` : '';
             return `
-                <div class="task-item" draggable="true" data-id="${item.id}" data-task-id="${item.id}">
+                <div class="task-item waiting" draggable="true" data-id="${item.id}" data-task-id="${item.id}">
                     <div class="task-color" style="background:${item.color};opacity:0.8"></div>
                     <div class="task-details" data-edit-id="${item.id}">
                         <div class="task-title">${escapeHtml(item.name)}${estimatedDisplay}</div>
                         ${dueDateDisplay}
                         ${item.note ? `<div class="task-note">${escapeHtml(item.note)}</div>` : ''}
                     </div>
-                    <div class="task-waiting-note">待ち</div>
+                    <div class="task-waiting-note">確認待ち</div>
                     <div class="task-btn-group">
-                        ${renderControlButtons(item)}
+                        <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();setTaskStatus('${item.id}', '${TASK_STATUS.ready}')" title="通常へ戻す">通常へ</button>
                     </div>
                 </div>
             `;
@@ -823,7 +824,7 @@ function renderFullTaskList() {
     }
 
     if (waitingTasks.length) {
-        html += '<div class="task-section-label" style="padding:0 1rem;">待ち</div>';
+        html += '<div class="task-section-label" style="padding:0 1rem;">確認待ち</div>';
         html += waitingTasks.map((item, index) => renderTaskCard(item, index, true)).join('');
     }
 
@@ -878,7 +879,7 @@ function renderTaskCard(item, index, isWaiting = false) {
         <div class="task-actions">
           ${renderControlButtons(item)}
           <button class="btn btn-sm btn-glass" onclick="event.stopPropagation();editTask('${item.id}')">編集</button>
-          <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();setTaskStatus('${item.id}', '${isWaiting ? TASK_STATUS.ready : TASK_STATUS.waiting}')">${isWaiting ? '通常へ' : '待ちへ'}</button>
+          <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();setTaskStatus('${item.id}', '${isWaiting ? TASK_STATUS.ready : TASK_STATUS.waiting}')">${isWaiting ? '通常へ' : '確認待ちへ'}</button>
           <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();archiveTask('${item.id}')">アーカイブ</button>
         </div>
       </div>
@@ -889,6 +890,10 @@ function renderTaskCard(item, index, isWaiting = false) {
  * Ensures consistency between Dashboard and Task Management
  */
 function renderControlButtons(item) {
+    if (item.status === TASK_STATUS.waiting) {
+        return '';
+    }
+
     const activeSession = state.activeSessions.find(s => s.itemId === item.id);
     const isActive = !!activeSession;
     const isPaused = !!state.pausedSessions[item.id];
@@ -1139,7 +1144,7 @@ window.deleteTask = window.archiveTask;
 
 window.setTaskStatus = (id, status) => {
     if (status === TASK_STATUS.waiting && (state.activeSessions.some(session => session.itemId === id) || state.pausedSessions[id] !== undefined)) {
-        showToast('計測中または停止中のタスクは待ちに移せません', 'warning');
+        showToast('計測中または停止中のタスクは確認待ちに移せません', 'warning');
         return;
     }
     const item = touchTask(id, { status });
@@ -1147,7 +1152,7 @@ window.setTaskStatus = (id, status) => {
     saveState().catch(e => console.error('setTaskStatus save error:', e));
     renderAll();
     renderFullTaskList();
-    showToast(status === TASK_STATUS.waiting ? '待ちに移動しました' : '通常タスクに戻しました');
+    showToast(status === TASK_STATUS.waiting ? '確認待ちに移動しました' : '通常タスクに戻しました');
 };
 
 function handleTaskSubmit(e) {
@@ -1219,6 +1224,12 @@ window.toggleTask = (id) => {
 
 function startTask(id) {
     console.log('TimeFlow: startTask called for', id);
+
+    const item = state.items.find(i => i.id === id);
+    if (item?.status === TASK_STATUS.waiting) {
+        showToast('確認待ちのタスクは通常に戻してから開始してください', 'warning');
+        return;
+    }
 
     if (state.activeSessions.some(s => s.itemId === id)) {
         showToast('このタスクはすでに稼働中です', 'warning');
@@ -1418,15 +1429,15 @@ window.openMiniDashboard = () => {
 
     renderMiniWindowContent();
 
-    // Periodic sync to ensure mini window stays updated
+    // Keep timer text fresh without replacing buttons while the user is clicking.
     window.miniWindowSyncInterval = setInterval(() => {
         if (window.miniWindow && !window.miniWindow.closed) {
-            renderMiniWindowContent();
+            renderMiniWindowContent({ force: false });
         } else {
             clearInterval(window.miniWindowSyncInterval);
             window.miniWindowSyncInterval = null;
         }
-    }, 500); // Sync every 500ms
+    }, 1000);
 
     window.miniWindow.addEventListener('pagehide', () => {
         if (window.miniWindowSyncInterval) {
@@ -1434,10 +1445,40 @@ window.openMiniDashboard = () => {
             window.miniWindowSyncInterval = null;
         }
         window.miniWindow = null;
+        miniWindowRenderSignature = '';
     });
 };
 
-window.renderMiniWindowContent = () => {
+function getMiniWindowSignature(items) {
+    return items.map(item => {
+        const activeSession = state.activeSessions.find(s => s.itemId === item.id);
+        const isActive = !!activeSession;
+        const isPaused = !!state.pausedSessions[item.id];
+        return `${item.id}:${item.name}:${item.color}:${isActive ? 'active' : isPaused ? 'paused' : 'idle'}`;
+    }).join('|');
+}
+
+function updateMiniWindowTimers() {
+    if (!window.miniWindow || window.miniWindow.closed) return;
+    state.activeSessions.forEach(active => {
+        const miniTimer = window.miniWindow.document.getElementById(`mini-timer-${active.itemId}`);
+        if (!miniTimer) return;
+        const totalMs = (active.accumulatedMs || 0) + (Date.now() - new Date(active.startAt).getTime());
+        miniTimer.textContent = formatDuration(totalMs);
+    });
+}
+
+window.handleMiniToggleTask = (id) => {
+    window.toggleTask(id);
+    renderMiniWindowContent({ force: true });
+};
+
+window.handleMiniStopTask = (id) => {
+    window.stopTask(id);
+    renderMiniWindowContent({ force: true });
+};
+
+window.renderMiniWindowContent = ({ force = true } = {}) => {
     if (!window.miniWindow || window.miniWindow.closed) return;
     const doc = window.miniWindow.document;
     const container = doc.body;
@@ -1451,6 +1492,14 @@ window.renderMiniWindowContent = () => {
     // Filter to only active/paused and apply same sorting as dashboard
     const filteredItems = state.items.filter(i => targetIds.includes(i.id) && !i.archived);
     const targetItems = sortTasksByPriority(filteredItems);
+    const nextSignature = getMiniWindowSignature(targetItems);
+
+    if (!force && nextSignature === miniWindowRenderSignature) {
+        updateMiniWindowTimers();
+        return;
+    }
+
+    miniWindowRenderSignature = nextSignature;
 
     if (targetItems.length === 0) {
         container.innerHTML = '<div class="empty-msg" style="padding:2rem;text-align:center;color:#6b7280;font-size:13px;">アクティブなタスクは<br>ありません</div>';
@@ -1477,11 +1526,11 @@ window.renderMiniWindowContent = () => {
 
         let buttons = '';
         if (isActive) {
-            buttons = `<button class="btn btn-sm btn-icon-only btn-warning" onclick="window.opener.toggleTask('${item.id}')" data-tooltip="一時停止">${pauseIcon}</button>`;
+            buttons = `<button class="btn btn-sm btn-icon-only btn-warning" onclick="event.stopPropagation();window.opener.handleMiniToggleTask('${item.id}')" data-tooltip="一時停止">${pauseIcon}</button>`;
         } else {
             buttons = `
-                <button class="btn btn-sm btn-icon-only btn-primary" onclick="window.opener.toggleTask('${item.id}')" data-tooltip="再開">${playIcon}</button>
-                <button class="btn btn-sm btn-icon-only btn-success" onclick="window.opener.stopTask('${item.id}')" data-tooltip="完了">${completeIcon}</button>
+                <button class="btn btn-sm btn-icon-only btn-primary" onclick="event.stopPropagation();window.opener.handleMiniToggleTask('${item.id}')" data-tooltip="再開">${playIcon}</button>
+                <button class="btn btn-sm btn-icon-only btn-success" onclick="event.stopPropagation();window.opener.handleMiniStopTask('${item.id}')" data-tooltip="完了">${completeIcon}</button>
              `;
         }
 
