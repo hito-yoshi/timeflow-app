@@ -46,6 +46,12 @@ const DEFAULT_SETTINGS = {
 };
 
 const COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#EC4899', '#F59E0B', '#EF4444', '#6366F1', '#14B8A6'];
+const TASK_STATUS = {
+    ready: 'ready',
+    waiting: 'waiting'
+};
+const CLOUD_REFRESH_INTERVAL_MS = 30000;
+const ACTIVE_STATE_SAVE_INTERVAL_MS = 30000;
 
 let state = { items: [], sessions: [], activeSessions: [], pausedSessions: {}, settings: { ...DEFAULT_SETTINGS } };
 let currentPeriod = 'day';
@@ -55,6 +61,10 @@ let customEndDate = null;
 let timerInterval = null;
 let currentUsername = null;
 let supabaseClient = null;
+let lastCloudRefreshAt = 0;
+let cloudRefreshInFlight = false;
+let activitySaveInterval = null;
+let lastTimerPaintAt = 0;
 
 // ========================================
 // Initialization
@@ -74,8 +84,11 @@ window.onload = async () => {
         loadFromLocalStorage(); // Fallback
     }
 
+    normalizeState();
+
     // 3. Final Render
     renderAll();
+    refreshCrossDeviceState({ silent: true, force: true }).catch(e => console.error('Initial refresh error:', e));
 
     // 4. Start timer loop if there are active sessions
     // Use a clean check that filters out null/undefined values
@@ -85,6 +98,8 @@ window.onload = async () => {
         console.log('TimeFlow: Starting timer loop for active sessions');
         startTimerLoop();
     }
+
+    startBackgroundSync();
 };
 
 function initSupabase() {
@@ -114,26 +129,8 @@ async function handleCloudSync() {
 
     if (cloudState) {
         console.log('TimeFlow: Cloud state found, merging with local state');
-        // Merge strategy: 
-        // 1. Items: prefer one with later updated_at if exists
-        const itemMap = new Map();
-        [...(localState?.items || []), ...(cloudState.items || [])].forEach(item => {
-            const existing = itemMap.get(item.id);
-            if (!existing || (item.updatedAt > existing.updatedAt)) {
-                itemMap.set(item.id, item);
-            }
-        });
-
-        // 2. Sessions: unique by ID (sessions are generally immutable logs)
-        const sessionMap = new Map();
-        [...(localState?.sessions || []), ...(cloudState.sessions || [])].forEach(s => {
-            sessionMap.set(s.id, s);
-        });
-
-        state.items = Array.from(itemMap.values());
-        state.sessions = Array.from(sessionMap.values());
-        state.activeSessions = cloudState.activeSessions || [];
-        state.settings = { ...state.settings, ...(cloudState.settings || {}) };
+        state = mergeStateSnapshots(localState, cloudState);
+        normalizeState();
 
         // Also save to user-specific local storage as backup
         saveToUserLocalStorage();
@@ -141,6 +138,7 @@ async function handleCloudSync() {
     } else if (localState) {
         // Cloud failed or empty, but we have local data - use it
         state = { ...state, ...localState };
+        normalizeState();
         showToast('ローカルデータから復元しました');
         // Try to sync to cloud (don't await, do in background)
         saveToCloud().catch(e => console.error('Background cloud sync error:', e));
@@ -160,6 +158,69 @@ function resetToEmptyState() {
     state.activeSessions = [];
     state.pausedSessions = {};
     state.settings = { ...DEFAULT_SETTINGS };
+}
+
+function normalizeTask(item = {}) {
+    return {
+        ...item,
+        status: item.status === TASK_STATUS.waiting ? TASK_STATUS.waiting : TASK_STATUS.ready,
+        updatedAt: item.updatedAt || item.createdAt || new Date().toISOString()
+    };
+}
+
+function normalizeState() {
+    state.items = (state.items || []).map(normalizeTask);
+    state.sessions = (state.sessions || []).map(session => ({
+        ...session,
+        updatedAt: session.updatedAt || session.endAt || session.startAt || new Date().toISOString()
+    }));
+    state.activeSessions = (state.activeSessions || [])
+        .filter(session => session && session.itemId)
+        .map(session => ({
+            ...session,
+            accumulatedMs: Number(session.accumulatedMs || 0)
+        }));
+    state.pausedSessions = state.pausedSessions || {};
+    state.settings = { ...DEFAULT_SETTINGS, ...(state.settings || {}) };
+}
+
+function getTimestamp(value) {
+    return value ? new Date(value).getTime() : 0;
+}
+
+function mergeStateSnapshots(localState, cloudState) {
+    const baseState = { items: [], sessions: [], activeSessions: [], pausedSessions: {}, settings: { ...DEFAULT_SETTINGS } };
+    const left = localState ? { ...baseState, ...localState } : baseState;
+    const right = cloudState ? { ...baseState, ...cloudState } : baseState;
+
+    const itemMap = new Map();
+    [...(left.items || []), ...(right.items || [])].forEach(rawItem => {
+        const item = normalizeTask(rawItem);
+        const existing = itemMap.get(item.id);
+        if (!existing || getTimestamp(item.updatedAt) >= getTimestamp(existing.updatedAt)) {
+            itemMap.set(item.id, item);
+        }
+    });
+
+    const sessionMap = new Map();
+    [...(left.sessions || []), ...(right.sessions || [])].forEach(session => {
+        const normalized = {
+            ...session,
+            updatedAt: session.updatedAt || session.endAt || session.startAt || new Date().toISOString()
+        };
+        const existing = sessionMap.get(normalized.id);
+        if (!existing || getTimestamp(normalized.updatedAt) >= getTimestamp(existing.updatedAt)) {
+            sessionMap.set(normalized.id, normalized);
+        }
+    });
+
+    return {
+        items: Array.from(itemMap.values()),
+        sessions: Array.from(sessionMap.values()),
+        activeSessions: (right.activeSessions && right.activeSessions.length) ? right.activeSessions : (left.activeSessions || []),
+        pausedSessions: Object.keys(right.pausedSessions || {}).length ? right.pausedSessions : (left.pausedSessions || {}),
+        settings: { ...DEFAULT_SETTINGS, ...(left.settings || {}), ...(right.settings || {}) }
+    };
 }
 
 // User-specific local storage functions
@@ -248,10 +309,12 @@ function loadFromLocalStorage() {
         state.activeSessions = JSON.parse(localStorage.getItem(STORAGE_KEYS.activeSessions) || '[]');
         state.settings = { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(STORAGE_KEYS.settings) || '{}') };
         state.pausedSessions = JSON.parse(localStorage.getItem('timeflow.pausedSessions') || '{}');
+        normalizeState();
     } catch (e) { console.error('Local load error:', e); }
 }
 
 async function saveState() {
+    syncLiveSessionsToLogs();
     // Save to generic LocalStorage (for no-user mode)
     if (!currentUsername) {
         localStorage.setItem(STORAGE_KEYS.items, JSON.stringify(state.items));
@@ -264,6 +327,180 @@ async function saveState() {
         saveToUserLocalStorage();
         // Save to Cloud
         await saveToCloud();
+    }
+}
+
+function saveStateSyncLocalOnly() {
+    syncLiveSessionsToLogs();
+    const itemsJson = JSON.stringify(state.items);
+    const sessionsJson = JSON.stringify(state.sessions);
+    const activeJson = JSON.stringify(state.activeSessions);
+    const settingsJson = JSON.stringify(state.settings);
+    const pausedJson = JSON.stringify(state.pausedSessions);
+
+    if (currentUsername) {
+        localStorage.setItem(getUserStorageKey(STORAGE_KEYS.items), itemsJson);
+        localStorage.setItem(getUserStorageKey(STORAGE_KEYS.sessions), sessionsJson);
+        localStorage.setItem(getUserStorageKey(STORAGE_KEYS.activeSessions), activeJson);
+        localStorage.setItem(getUserStorageKey(STORAGE_KEYS.settings), settingsJson);
+        localStorage.setItem(getUserStorageKey('timeflow.pausedSessions'), pausedJson);
+        return;
+    }
+
+    localStorage.setItem(STORAGE_KEYS.items, itemsJson);
+    localStorage.setItem(STORAGE_KEYS.sessions, sessionsJson);
+    localStorage.setItem(STORAGE_KEYS.activeSessions, activeJson);
+    localStorage.setItem(STORAGE_KEYS.settings, settingsJson);
+    localStorage.setItem('timeflow.pausedSessions', pausedJson);
+}
+
+function getSessionSnapshotForItem(itemId) {
+    const active = state.activeSessions.find(session => session.itemId === itemId);
+    if (active) {
+        const now = Date.now();
+        return {
+            itemId,
+            startAt: active.logStartAt || new Date(now - ((active.accumulatedMs || 0) + (now - new Date(active.startAt).getTime()))).toISOString(),
+            endAt: new Date(now).toISOString(),
+            liveState: 'active'
+        };
+    }
+
+    return null;
+}
+
+function upsertLiveSessionLog(itemId) {
+    const snapshot = getSessionSnapshotForItem(itemId);
+    if (!snapshot) return;
+
+    const existing = state.sessions.find(session => session.itemId === itemId && session.isLive);
+    const updatedAt = new Date().toISOString();
+
+    if (existing) {
+        existing.startAt = snapshot.startAt;
+        existing.endAt = snapshot.endAt;
+        existing.liveState = snapshot.liveState;
+        existing.updatedAt = updatedAt;
+        return existing.id;
+    }
+
+    const liveSession = {
+        id: generateId(),
+        itemId,
+        startAt: snapshot.startAt,
+        endAt: snapshot.endAt,
+        note: '',
+        isLive: true,
+        liveState: snapshot.liveState,
+        updatedAt
+    };
+    state.sessions.push(liveSession);
+    return liveSession.id;
+}
+
+function syncLiveSessionsToLogs() {
+    const trackedIds = new Set(state.activeSessions.map(session => session.itemId));
+
+    trackedIds.forEach(itemId => upsertLiveSessionLog(itemId));
+}
+
+function finalizeLiveSession(itemId, fallbackSnapshot = null) {
+    const existing = state.sessions.find(session => session.itemId === itemId && session.isLive);
+    const snapshot = fallbackSnapshot || getSessionSnapshotForItem(itemId);
+
+    if (existing) {
+        if (snapshot) {
+            existing.startAt = snapshot.startAt;
+            existing.endAt = snapshot.endAt;
+        }
+        existing.isLive = false;
+        delete existing.liveState;
+        existing.updatedAt = new Date().toISOString();
+        return;
+    }
+
+    if (!snapshot) return;
+
+    state.sessions.push({
+        id: generateId(),
+        itemId,
+        startAt: snapshot.startAt,
+        endAt: snapshot.endAt,
+        note: '',
+        updatedAt: new Date().toISOString()
+    });
+}
+
+function removeLiveSession(itemId) {
+    state.sessions = state.sessions.filter(session => !(session.itemId === itemId && session.isLive));
+}
+
+function touchTask(id, updates = {}) {
+    const item = state.items.find(entry => entry.id === id);
+    if (!item) return null;
+    Object.assign(item, updates, { updatedAt: new Date().toISOString() });
+    return item;
+}
+
+function startBackgroundSync() {
+    if (!activitySaveInterval) {
+        activitySaveInterval = setInterval(() => {
+            if (state.activeSessions.length > 0 && (!timerInterval || (Date.now() - lastTimerPaintAt) > 15000)) {
+                if (timerInterval) clearInterval(timerInterval);
+                timerInterval = null;
+                startTimerLoop();
+            }
+            if (state.activeSessions.length || Object.keys(state.pausedSessions).length) {
+                saveState().catch(e => console.error('Periodic save error:', e));
+            }
+            refreshCrossDeviceState({ silent: true }).catch(e => console.error('Periodic refresh error:', e));
+        }, ACTIVE_STATE_SAVE_INTERVAL_MS);
+    }
+}
+
+async function refreshCrossDeviceState({ silent = false, force = false } = {}) {
+    if (!currentUsername || !supabaseClient) return;
+    if (cloudRefreshInFlight) return;
+
+    const now = Date.now();
+    if (!force && now - lastCloudRefreshAt < CLOUD_REFRESH_INTERVAL_MS) return;
+
+    cloudRefreshInFlight = true;
+    try {
+        const cloudState = await loadFromCloud(currentUsername);
+        lastCloudRefreshAt = now;
+        if (!cloudState) return;
+
+        const merged = mergeStateSnapshots({
+            items: state.items,
+            sessions: state.sessions,
+            activeSessions: state.activeSessions,
+            pausedSessions: state.pausedSessions,
+            settings: state.settings
+        }, cloudState);
+
+        const before = JSON.stringify({
+            items: state.items,
+            sessions: state.sessions,
+            activeSessions: state.activeSessions,
+            pausedSessions: state.pausedSessions,
+            settings: state.settings
+        });
+        const after = JSON.stringify(merged);
+
+        if (before !== after) {
+            state = merged;
+            normalizeState();
+            renderAll();
+            renderFullTaskList();
+            renderLogTable();
+            updateLogFilterOptions();
+            if (!silent) showToast('別デバイスの変更を同期しました');
+        }
+    } catch (e) {
+        console.error('Cross-device refresh error:', e);
+    } finally {
+        cloudRefreshInFlight = false;
     }
 }
 
@@ -369,6 +606,42 @@ function initEventListeners() {
     // Resize
     window.addEventListener('resize', () => updateSummary());
 
+    window.addEventListener('focus', () => {
+        if (state.activeSessions.length > 0) {
+            if (!timerInterval) startTimerLoop();
+            updateTimers();
+        }
+        refreshCrossDeviceState({ silent: true, force: true }).catch(e => console.error(e));
+    });
+
+    window.addEventListener('pageshow', () => {
+        if (state.activeSessions.length > 0) {
+            if (!timerInterval) startTimerLoop();
+            updateTimers();
+        }
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            saveStateSyncLocalOnly();
+            return;
+        }
+
+        if (state.activeSessions.length > 0) {
+            if (!timerInterval) startTimerLoop();
+            updateTimers();
+        }
+        refreshCrossDeviceState({ silent: true, force: true }).catch(e => console.error(e));
+    });
+
+    window.addEventListener('pagehide', () => {
+        saveStateSyncLocalOnly();
+    });
+
+    window.addEventListener('beforeunload', () => {
+        saveStateSyncLocalOnly();
+    });
+
 
     // Chart tooltip
     setupChartTooltip();
@@ -393,12 +666,13 @@ function renderAll() {
 // ========================================
 function renderQuickTaskList(animateId = null) {
     const container = document.getElementById('taskListCompact');
-    let activeTasks = state.items.filter(i => !i.archived);
+    let activeTasks = state.items.filter(i => !i.archived && i.status !== TASK_STATUS.waiting);
+    const waitingTasks = state.items.filter(i => !i.archived && i.status === TASK_STATUS.waiting);
     const archivedTasks = state.items.filter(i => i.archived);
 
     let html = '';
 
-    if (!activeTasks.length && !archivedTasks.length) {
+    if (!activeTasks.length && !waitingTasks.length && !archivedTasks.length) {
         container.innerHTML = '<div class="no-active-msg" style="padding:1rem;text-align:center;">タスクがありません</div>';
         return;
     }
@@ -449,6 +723,28 @@ function renderQuickTaskList(animateId = null) {
 
 
     }).join('');
+
+    if (waitingTasks.length) {
+        html += `<div class="task-section-label">待ち</div>`;
+        html += sortTasksByPriority(waitingTasks).map(item => {
+            const estimatedDisplay = item.estimatedHours ? `<span class="task-estimated">(${item.estimatedHours})</span>` : '';
+            const dueDateDisplay = item.dueDate ? `<span class="task-due-date">期日: ${formatDateShort(item.dueDate)}</span>` : '';
+            return `
+                <div class="task-item" draggable="true" data-id="${item.id}" data-task-id="${item.id}">
+                    <div class="task-color" style="background:${item.color};opacity:0.8"></div>
+                    <div class="task-details" data-edit-id="${item.id}">
+                        <div class="task-title">${escapeHtml(item.name)}${estimatedDisplay}</div>
+                        ${dueDateDisplay}
+                        ${item.note ? `<div class="task-note">${escapeHtml(item.note)}</div>` : ''}
+                    </div>
+                    <div class="task-waiting-note">待ち</div>
+                    <div class="task-btn-group">
+                        ${renderControlButtons(item)}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
 
     // Archived tasks section (collapsible)
     if (archivedTasks.length) {
@@ -507,7 +803,9 @@ window.toggleDashboardArchive = () => {
 
 function renderFullTaskList() {
     const container = document.getElementById('taskListFull');
-    const activeTasks = state.items.filter(i => !i.archived);
+    if (!container) return;
+    const activeTasks = state.items.filter(i => !i.archived && i.status !== TASK_STATUS.waiting);
+    const waitingTasks = state.items.filter(i => !i.archived && i.status === TASK_STATUS.waiting);
     const archivedTasks = state.items.filter(i => i.archived);
 
     if (!state.items.length) {
@@ -520,8 +818,13 @@ function renderFullTaskList() {
     // Active tasks section
     if (activeTasks.length) {
         html += activeTasks.map((item, index) => renderTaskCard(item, index)).join('');
-    } else {
+    } else if (!waitingTasks.length) {
         html += '<div style="padding:1rem;text-align:center;color:var(--text-muted);">アクティブなタスクがありません</div>';
+    }
+
+    if (waitingTasks.length) {
+        html += '<div class="task-section-label" style="padding:0 1rem;">待ち</div>';
+        html += waitingTasks.map((item, index) => renderTaskCard(item, index, true)).join('');
     }
 
     // Archived tasks section (collapsible)
@@ -545,7 +848,7 @@ function renderFullTaskList() {
     initDragAndDrop();
 }
 
-function renderTaskCard(item, index) {
+function renderTaskCard(item, index, isWaiting = false) {
     const activeSession = state.activeSessions.find(s => s.itemId === item.id);
     const isActive = !!activeSession;
     const isPaused = !!state.pausedSessions[item.id];
@@ -575,6 +878,7 @@ function renderTaskCard(item, index) {
         <div class="task-actions">
           ${renderControlButtons(item)}
           <button class="btn btn-sm btn-glass" onclick="event.stopPropagation();editTask('${item.id}')">編集</button>
+          <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();setTaskStatus('${item.id}', '${isWaiting ? TASK_STATUS.ready : TASK_STATUS.waiting}')">${isWaiting ? '通常へ' : '待ちへ'}</button>
           <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();archiveTask('${item.id}')">アーカイブ</button>
         </div>
       </div>
@@ -653,6 +957,7 @@ window.openTaskModal = (id = null) => {
             document.getElementById('taskName').value = item.name;
             document.getElementById('taskColor').value = item.color;
             document.getElementById('taskNote').value = item.note || '';
+            document.getElementById('taskStatus').value = item.status || TASK_STATUS.ready;
             const estimatedEl = document.getElementById('taskEstimatedHours');
             if (estimatedEl) estimatedEl.value = item.estimatedHours || '';
             const dueDateEl = document.getElementById('taskDueDate');
@@ -688,6 +993,7 @@ window.openTaskModal = (id = null) => {
         document.getElementById('taskName').value = '';
         document.getElementById('taskNote').value = '';
         document.getElementById('taskColor').value = COLORS[0];
+        document.getElementById('taskStatus').value = TASK_STATUS.ready;
         const estimatedEl = document.getElementById('taskEstimatedHours');
         if (estimatedEl) estimatedEl.value = '';
         const dueDateEl = document.getElementById('taskDueDate');
@@ -721,6 +1027,7 @@ window.cancelTask = (id) => {
 
         // Also clear paused state
         delete state.pausedSessions[id];
+        removeLiveSession(id);
 
         saveState();
         renderAll();
@@ -769,13 +1076,15 @@ window.archiveTask = (id) => {
     if (!item) return;
 
     // Stop any active session for this task
+    if (state.activeSessions.some(s => s.itemId === id) || state.pausedSessions[id] !== undefined) {
+        finalizeLiveSession(id);
+    }
     state.activeSessions = state.activeSessions.filter(s => s.itemId !== id);
     delete state.pausedSessions[id];
     if (state.activeSessions.length === 0) stopTimerLoop();
 
     // Mark as archived
-    item.archived = true;
-    item.archivedAt = new Date().toISOString();
+    touchTask(id, { archived: true, archivedAt: new Date().toISOString() });
 
     saveState();
 
@@ -794,7 +1103,7 @@ window.restoreTask = (id) => {
     const item = state.items.find(i => i.id === id);
     if (!item) return;
 
-    item.archived = false;
+    touchTask(id, { archived: false, archivedAt: undefined });
     delete item.archivedAt;
 
     saveState();
@@ -828,6 +1137,19 @@ window.permanentlyDeleteTask = (id) => {
 window.confirmDeleteTask = window.archiveTask; // Alias for backward compatibility
 window.deleteTask = window.archiveTask;
 
+window.setTaskStatus = (id, status) => {
+    if (status === TASK_STATUS.waiting && (state.activeSessions.some(session => session.itemId === id) || state.pausedSessions[id] !== undefined)) {
+        showToast('計測中または停止中のタスクは待ちに移せません', 'warning');
+        return;
+    }
+    const item = touchTask(id, { status });
+    if (!item) return;
+    saveState().catch(e => console.error('setTaskStatus save error:', e));
+    renderAll();
+    renderFullTaskList();
+    showToast(status === TASK_STATUS.waiting ? '待ちに移動しました' : '通常タスクに戻しました');
+};
+
 function handleTaskSubmit(e) {
     e.preventDefault();
     const editId = document.getElementById('taskEditId').value;
@@ -836,18 +1158,22 @@ function handleTaskSubmit(e) {
     const note = document.getElementById('taskNote').value.trim();
     const estimatedHours = document.getElementById('taskEstimatedHours')?.value.trim() || '';
     const dueDate = document.getElementById('taskDueDate')?.value || '';
+    let status = document.getElementById('taskStatus')?.value || TASK_STATUS.ready;
+    if (editId && status === TASK_STATUS.waiting && (state.activeSessions.some(session => session.itemId === editId) || state.pausedSessions[editId] !== undefined)) {
+        status = TASK_STATUS.ready;
+    }
 
     let animateId = null;
     if (editId) {
         const idx = state.items.findIndex(i => i.id === editId);
         if (idx !== -1) {
-            state.items[idx] = { ...state.items[idx], name, color, note, estimatedHours, dueDate };
+            state.items[idx] = normalizeTask({ ...state.items[idx], name, color, note, estimatedHours, dueDate, status, updatedAt: new Date().toISOString() });
         }
         animateId = editId;
         showToast('タスクを更新しました');
     } else {
         const newId = generateId();
-        state.items.push({ id: newId, name, color, note, estimatedHours, dueDate, createdAt: new Date().toISOString() });
+        state.items.push(normalizeTask({ id: newId, name, color, note, estimatedHours, dueDate, status, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
         animateId = newId;
         showToast('タスクを追加しました');
     }
@@ -914,14 +1240,18 @@ function startTask(id) {
     // Check if there's accumulated time from a previous pause
     const accumulated = state.pausedSessions[id] || 0;
 
+    touchTask(id, { status: TASK_STATUS.ready });
+
     state.activeSessions.push({
         itemId: id,
         startAt: new Date().toISOString(),
-        accumulatedMs: accumulated // Store accumulated time
+        accumulatedMs: accumulated, // Store accumulated time
+        logStartAt: new Date().toISOString()
     });
 
     // Clear paused state
     delete state.pausedSessions[id];
+    upsertLiveSessionLog(id);
 
     // Move started task to top of list (active tasks at top)
     const taskIdx = state.items.findIndex(i => i.id === id);
@@ -956,18 +1286,7 @@ window.stopTask = (id) => {
         // Task is active - use finishSession
         finishSession(id);
     } else if (state.pausedSessions[id] !== undefined) {
-        // Task is paused - create log from paused time
-        const totalMs = state.pausedSessions[id];
-        const effectiveStartAt = new Date(Date.now() - totalMs).toISOString();
-
-        state.sessions.push({
-            id: generateId(),
-            itemId: id,
-            startAt: effectiveStartAt,
-            endAt: new Date().toISOString(),
-            note: ''
-        });
-        console.log('TimeFlow: Created session from paused state, duration:', totalMs);
+        console.log('TimeFlow: stopTask clearing paused state for', id);
     }
 
     // Clear any paused time since we recorded the full session
@@ -976,8 +1295,7 @@ window.stopTask = (id) => {
     // Mark as archived and move to end of state.items for consistency
     const taskIdx = state.items.findIndex(i => i.id === id);
     if (taskIdx !== -1) {
-        state.items[taskIdx].archived = true;
-        state.items[taskIdx].archivedAt = new Date().toISOString();
+        touchTask(id, { archived: true, archivedAt: new Date().toISOString(), status: TASK_STATUS.ready });
         const [task] = state.items.splice(taskIdx, 1);
         state.items.push(task);
     }
@@ -996,7 +1314,7 @@ window.stopTask = (id) => {
 
 
 
-// Pause task (save accumulated time without recording log)
+// Pause task and persist the elapsed segment to logs
 function pauseTask(id) {
     const idx = state.activeSessions.findIndex(s => s.itemId === id);
     if (idx === -1) return;
@@ -1004,9 +1322,15 @@ function pauseTask(id) {
     const active = state.activeSessions[idx];
     const currentElapsed = Date.now() - new Date(active.startAt).getTime();
     const totalAccumulated = (active.accumulatedMs || 0) + currentElapsed;
+    const effectiveStartAt = active.logStartAt || new Date(Date.now() - totalAccumulated).toISOString();
 
     // Save accumulated time
     state.pausedSessions[id] = totalAccumulated;
+    finalizeLiveSession(id, {
+        itemId: id,
+        startAt: effectiveStartAt,
+        endAt: new Date().toISOString()
+    });
 
     // Remove from active without creating log
     state.activeSessions.splice(idx, 1);
@@ -1021,16 +1345,12 @@ function finishSession(itemId) {
     const active = state.activeSessions[idx];
     const currentElapsed = Date.now() - new Date(active.startAt).getTime();
     const totalMs = (active.accumulatedMs || 0) + currentElapsed;
+    const effectiveStartAt = active.logStartAt || new Date(Date.now() - totalMs).toISOString();
 
-    // Calculate proper start time for the full session
-    const effectiveStartAt = new Date(Date.now() - totalMs).toISOString();
-
-    state.sessions.push({
-        id: generateId(),
+    finalizeLiveSession(itemId, {
         itemId,
         startAt: effectiveStartAt,
-        endAt: new Date().toISOString(),
-        note: ''
+        endAt: new Date().toISOString()
     });
     state.activeSessions.splice(idx, 1);
 
@@ -1043,6 +1363,7 @@ function startTimerLoop() {
         return;
     }
     console.log('TimeFlow: Starting timer loop');
+    lastTimerPaintAt = Date.now();
     timerInterval = setInterval(updateTimers, 1000);
     // Immediately call updateTimers once to show initial values
     updateTimers();
@@ -1055,14 +1376,9 @@ function stopTimerLoop() {
         timerInterval = null;
     }
 
-    // Close mini window if open
-    if (window.miniWindow && !window.miniWindow.closed) {
-        window.miniWindow.close();
-        window.miniWindow = null;
-    }
-
     // Reset the analysis update counter when stopping
     analysisUpdateCounter = 0;
+    if (typeof renderMiniWindowContent === 'function') renderMiniWindowContent();
 }
 
 // ========================================
@@ -1088,10 +1404,11 @@ window.openMiniDashboard = () => {
     const doc = window.miniWindow.document;
 
     // Inject Styles
+    const miniStyleUrl = new URL('style.css', window.location.href).href;
     doc.head.innerHTML = `
         <meta charset="UTF-8">
         <title>TimeFlow Mini</title>
-        <link rel="stylesheet" href="${window.location.origin}/style.css"> 
+        <link rel="stylesheet" href="${miniStyleUrl}"> 
         <style>
             body.mini-window-body { padding: 12px; background: var(--bg-body, #111827); color: var(--text-main, #fff); overflow-y: auto; }
             .mini-window-body .empty-msg { text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 2rem; opacity: 0.7; }
@@ -1264,6 +1581,7 @@ function setupMiniWindowDragAndDrop(doc) {
 let analysisUpdateCounter = 0;
 
 function updateTimers() {
+    lastTimerPaintAt = Date.now();
     state.activeSessions.forEach(active => {
         // Update all timer displays for this task (dashboard and task management)
         const els = document.querySelectorAll(`[data-timer="${active.itemId}"]`);
@@ -1299,7 +1617,13 @@ function updateTimers() {
             renderStats();
             updateSummary();
         }
+        const logsView = document.getElementById('logsView');
+        if (logsView && !logsView.classList.contains('hidden')) {
+            syncLiveSessionsToLogs();
+            renderLogTable();
+        }
     }
+
 }
 
 
@@ -1400,6 +1724,9 @@ function renderLogTable() {
     tbody.innerHTML = logs.map(s => {
         const item = state.items.find(i => i.id === s.itemId);
         const dur = new Date(s.endAt) - new Date(s.startAt);
+        const noteText = s.isLive
+            ? (s.liveState === 'paused' ? '計測中（停止中）' : '計測中')
+            : (s.note || '');
         return `
       <tr>
         <td>${formatDateShort(s.startAt)}</td>
@@ -1407,10 +1734,10 @@ function renderLogTable() {
         <td>${formatTime(s.startAt)}</td>
         <td>${formatTime(s.endAt)}</td>
         <td>${formatDuration(dur)}</td>
-        <td>${escapeHtml(s.note || '')}</td>
+        <td>${escapeHtml(noteText)}</td>
         <td>
-          <button class="btn btn-sm btn-ghost" onclick="editLog('${s.id}')">編集</button>
-          <button class="btn btn-sm btn-ghost" onclick="deleteLog('${s.id}')">削除</button>
+          ${s.isLive ? '' : `<button class="btn btn-sm btn-ghost" onclick="editLog('${s.id}')">編集</button>
+          <button class="btn btn-sm btn-ghost" onclick="deleteLog('${s.id}')">削除</button>`}
         </td>
       </tr>
     `;
@@ -1485,11 +1812,11 @@ function handleLogSubmit(e) {
     if (editId) {
         const idx = state.sessions.findIndex(s => s.id === editId);
         if (idx !== -1) {
-            state.sessions[idx] = { ...state.sessions[idx], itemId, startAt: startAt.toISOString(), endAt: endAt.toISOString(), note };
+            state.sessions[idx] = { ...state.sessions[idx], itemId, startAt: startAt.toISOString(), endAt: endAt.toISOString(), note, updatedAt: new Date().toISOString() };
         }
         showToast('ログを更新しました');
     } else {
-        state.sessions.push({ id: generateId(), itemId, startAt: startAt.toISOString(), endAt: endAt.toISOString(), note });
+        state.sessions.push({ id: generateId(), itemId, startAt: startAt.toISOString(), endAt: endAt.toISOString(), note, updatedAt: new Date().toISOString() });
         showToast('ログを追加しました');
     }
 
@@ -1622,6 +1949,7 @@ function calculateSummary(period, date) {
 
 
     const relevantSessions = state.sessions.filter(s => {
+        if (s.isLive) return false;
         if (!visibleItemIds.has(s.itemId)) return false;
         const start = new Date(s.startAt);
         const end = new Date(s.endAt);
@@ -1651,27 +1979,12 @@ function calculateSummary(period, date) {
 
     relevantSessions.forEach(s => processSession(s, false));
 
-    // Include paused session time (unrecorded time from current sessions)
-    Object.entries(state.pausedSessions).forEach(([itemId, duration]) => {
-        if (!visibleItemIds.has(itemId)) return;
-        // We treat paused time as occurring "now" for the purpose of today's summary
-        // (Or more precisely, we create a pseudo-session ending now)
-        const tempSession = {
-            itemId: itemId,
-            startAt: new Date(Date.now() - duration).toISOString(),
-            endAt: new Date().toISOString()
-        };
-        processSession(tempSession, false);
-    });
-
     // Include current active sessions in analysis
     state.activeSessions.forEach(as => {
         if (!visibleItemIds.has(as.itemId)) return;
-        const currentElapsed = Date.now() - new Date(as.startAt).getTime();
-        const totalMs = (as.accumulatedMs || 0) + currentElapsed;
         const tempSession = {
             itemId: as.itemId,
-            startAt: new Date(Date.now() - totalMs).toISOString(),
+            startAt: as.logStartAt || new Date(Date.now() - ((as.accumulatedMs || 0) + (Date.now() - new Date(as.startAt).getTime()))).toISOString(),
             endAt: new Date().toISOString()
         };
         processSession(tempSession, true);
@@ -2058,6 +2371,7 @@ function exportData() {
         items: state.items,
         sessions: state.sessions,
         activeSessions: state.activeSessions,
+        pausedSessions: state.pausedSessions,
         settings: state.settings
     };
 
@@ -2084,7 +2398,9 @@ function importData(file) {
                 state.items = data.items || [];
                 state.sessions = data.sessions || [];
                 state.activeSessions = data.activeSessions || [];
+                state.pausedSessions = data.pausedSessions || {};
                 state.settings = { ...DEFAULT_SETTINGS, ...data.settings };
+                normalizeState();
                 saveState();
                 renderAll();
                 updateLogFilterOptions();
@@ -2144,6 +2460,7 @@ let draggedItem = null;
 
 function initDragAndDrop() {
     const container = document.getElementById('taskListFull');
+    if (!container) return;
     const items = container.querySelectorAll('.task-card-full');
 
     items.forEach(item => {
@@ -2512,4 +2829,3 @@ function sortTasksByPriority(tasks) {
         return 0;
     });
 }
-

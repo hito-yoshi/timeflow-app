@@ -5,6 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TimeFlow | Time Tracking Dashboard</title>
+    <link rel="icon" type="image/svg+xml"
+        href='data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="%230f172a"/><circle cx="32" cy="32" r="19" fill="none" stroke="%233b82f6" stroke-width="4"/><path d="M32 20v13l9 5" fill="none" stroke="%23a78bfa" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>'>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -134,7 +136,7 @@
                                             <path d="M10 14L21 3"></path>
                                         </svg>
                                     </button>
-                                    <button class="btn btn-icon-sm" onclick="openTaskModal()"
+                                    <button class="btn btn-icon-sm task-add-btn" onclick="openTaskModal()"
                                         data-tooltip="新しいタスクを追加">+</button>
                                 </div>
                             </div>
@@ -358,6 +360,10 @@
                 <div class="input-group"><label>想定時間 <small>(例: 1.5h)</small></label><input type="text"
                         id="taskEstimatedHours" placeholder="1.5h"></div>
                 <div class="input-group"><label>期日 <small>(任意)</small></label><input type="date" id="taskDueDate"></div>
+                <div class="input-group"><label>状態</label><select id="taskStatus">
+                        <option value="ready">通常</option>
+                        <option value="waiting">待ち</option>
+                    </select></div>
 
                 <input type="hidden" id="taskEditId">
 
