@@ -726,21 +726,24 @@ function renderQuickTaskList(animateId = null) {
     }).join('');
 
     if (waitingTasks.length) {
-        html += `<div class="task-section-label">確認待ち</div>`;
+        html += `<div class="task-section-label">待ち</div>`;
         html += sortTasksByPriority(waitingTasks).map(item => {
+            const isPaused = !!state.pausedSessions[item.id];
+            const timerDisplay = isPaused ? formatDuration(state.pausedSessions[item.id]) : '';
             const estimatedDisplay = item.estimatedHours ? `<span class="task-estimated">(${item.estimatedHours})</span>` : '';
             const dueDateDisplay = item.dueDate ? `<span class="task-due-date">期日: ${formatDateShort(item.dueDate)}</span>` : '';
             return `
-                <div class="task-item waiting" draggable="true" data-id="${item.id}" data-task-id="${item.id}">
+                <div class="task-item waiting ${isPaused ? 'paused' : ''}" draggable="true" data-id="${item.id}" data-task-id="${item.id}">
                     <div class="task-color" style="background:${item.color};opacity:0.8"></div>
                     <div class="task-details" data-edit-id="${item.id}">
                         <div class="task-title">${escapeHtml(item.name)}${estimatedDisplay}</div>
                         ${dueDateDisplay}
                         ${item.note ? `<div class="task-note">${escapeHtml(item.note)}</div>` : ''}
                     </div>
-                    <div class="task-waiting-note">確認待ち</div>
+                    <div class="task-timer ${isPaused ? 'paused' : ''}" data-timer="${item.id}">${timerDisplay}</div>
+                    <div class="task-waiting-note">待ち</div>
                     <div class="task-btn-group">
-                        <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();setTaskStatus('${item.id}', '${TASK_STATUS.ready}')" title="通常へ戻す">通常へ</button>
+                        <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();setTaskStatus('${item.id}', '${TASK_STATUS.ready}')" title="待ちを解除">待ち解除</button>
                     </div>
                 </div>
             `;
@@ -824,7 +827,7 @@ function renderFullTaskList() {
     }
 
     if (waitingTasks.length) {
-        html += '<div class="task-section-label" style="padding:0 1rem;">確認待ち</div>';
+        html += '<div class="task-section-label" style="padding:0 1rem;">待ち</div>';
         html += waitingTasks.map((item, index) => renderTaskCard(item, index, true)).join('');
     }
 
@@ -879,7 +882,7 @@ function renderTaskCard(item, index, isWaiting = false) {
         <div class="task-actions">
           ${renderControlButtons(item)}
           <button class="btn btn-sm btn-glass" onclick="event.stopPropagation();editTask('${item.id}')">編集</button>
-          <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();setTaskStatus('${item.id}', '${isWaiting ? TASK_STATUS.ready : TASK_STATUS.waiting}')">${isWaiting ? '通常へ' : '確認待ちへ'}</button>
+          <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();setTaskStatus('${item.id}', '${isWaiting ? TASK_STATUS.ready : TASK_STATUS.waiting}')">${isWaiting ? '待ち解除' : '待ちへ'}</button>
           <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();archiveTask('${item.id}')">アーカイブ</button>
         </div>
       </div>
@@ -1142,17 +1145,20 @@ window.permanentlyDeleteTask = (id) => {
 window.confirmDeleteTask = window.archiveTask; // Alias for backward compatibility
 window.deleteTask = window.archiveTask;
 
-window.setTaskStatus = (id, status) => {
-    if (status === TASK_STATUS.waiting && (state.activeSessions.some(session => session.itemId === id) || state.pausedSessions[id] !== undefined)) {
-        showToast('計測中または停止中のタスクは確認待ちに移せません', 'warning');
-        return;
+function prepareTaskStatusChange(id, status) {
+    if (status === TASK_STATUS.waiting && state.activeSessions.some(session => session.itemId === id)) {
+        pauseTask(id);
     }
+}
+
+window.setTaskStatus = (id, status) => {
+    prepareTaskStatusChange(id, status);
     const item = touchTask(id, { status });
     if (!item) return;
     saveState().catch(e => console.error('setTaskStatus save error:', e));
     renderAll();
     renderFullTaskList();
-    showToast(status === TASK_STATUS.waiting ? '確認待ちに移動しました' : '通常タスクに戻しました');
+    showToast(status === TASK_STATUS.waiting ? '待ちに移動しました' : '待ちを解除しました');
 };
 
 function handleTaskSubmit(e) {
@@ -1164,14 +1170,12 @@ function handleTaskSubmit(e) {
     const estimatedHours = document.getElementById('taskEstimatedHours')?.value.trim() || '';
     const dueDate = document.getElementById('taskDueDate')?.value || '';
     let status = document.getElementById('taskStatus')?.value || TASK_STATUS.ready;
-    if (editId && status === TASK_STATUS.waiting && (state.activeSessions.some(session => session.itemId === editId) || state.pausedSessions[editId] !== undefined)) {
-        status = TASK_STATUS.ready;
-    }
 
     let animateId = null;
     if (editId) {
         const idx = state.items.findIndex(i => i.id === editId);
         if (idx !== -1) {
+            prepareTaskStatusChange(editId, status);
             state.items[idx] = normalizeTask({ ...state.items[idx], name, color, note, estimatedHours, dueDate, status, updatedAt: new Date().toISOString() });
         }
         animateId = editId;
@@ -1227,7 +1231,7 @@ function startTask(id) {
 
     const item = state.items.find(i => i.id === id);
     if (item?.status === TASK_STATUS.waiting) {
-        showToast('確認待ちのタスクは通常に戻してから開始してください', 'warning');
+        showToast('待ちを解除してから開始してください', 'warning');
         return;
     }
 
